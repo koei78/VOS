@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+.env
+.venv/
+venv/
+.python-version
+call_log.csv
+cleaned_split.csv
+response.html
+debug_search.html
