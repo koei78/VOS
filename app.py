@@ -1,11 +1,24 @@
 import threading
 import uuid
 import json
+import urllib.parse
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
 import io
 
 from vos import VOSClient
+
+
+def _safe_cookies(cookies: dict) -> dict:
+    """クッキー値にlatin-1で表せない文字が含まれる場合にURLエンコードする"""
+    safe = {}
+    for k, v in cookies.items():
+        try:
+            str(v).encode("latin-1")
+            safe[k] = v
+        except UnicodeEncodeError:
+            safe[k] = urllib.parse.quote(str(v), safe="")
+    return safe
 
 app = Flask(__name__)
 app.secret_key = "vos-flask-secret-key-2026"
@@ -74,25 +87,31 @@ def api_update():
 
             def process_one(tel):
                 s = VOSClient.create_session()
-                s.cookies.update(cookies)
+                s.cookies.update(_safe_cookies(cookies))
                 tmp = VOSClient.__new__(VOSClient)
                 tmp.session = s
-                ids = tmp.get_id_by_tel(tel)
-                if not ids:
-                    return tel, None, None
-                cid = ids[0]
+                results = tmp.get_id_by_tel(tel)
+                if not results:
+                    return tel, None, None, ""
+                first = results[0]
+                cid, flag = first["id"], first["flag"]
+                if flag == "見込み":
+                    return tel, cid, None, flag
                 status = tmp.update_next(cid, call_date, call_time, rank,
                                         login_user_id=login_user_id,
                                         cust_second_user_id=second_user_id)
-                return tel, cid, status
+                return tel, cid, status, flag
 
             with ThreadPoolExecutor(max_workers=PARALLEL) as executor:
                 futures = {executor.submit(process_one, tel): tel for tel in tel_list}
                 for future in as_completed(futures):
                     try:
-                        tel, cid, status = future.result()
+                        tel, cid, status, flag = future.result()
                         if cid is None:
                             log(f"[{_now()}] ⚠ 顧客なし  tel={tel}")
+                            ng += 1
+                        elif flag == "見込み":
+                            log(f"[{_now()}] ⏭ スキップ（見込み）  tel={tel} → id={cid}")
                             ng += 1
                         elif status in (200, 302):
                             log(f"[{_now()}] ✓ OK  tel={tel} → id={cid}  ({status})")

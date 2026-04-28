@@ -419,19 +419,24 @@ class VOSClient:
         return res.text
 
     def get_id_by_tel(self, tel):
-        """電話番号→顧客ID一覧を返す（見つからなければ空リスト）"""
+        """電話番号→[{"id": 顧客ID, "flag": 最終通話フラグ}] を返す（見つからなければ空リスト）"""
         html = self.select(tel)
-        # デバッグ用：検索結果HTMLを保存
         with open("debug_search.html", "w", encoding="utf-8") as f:
             f.write(html)
         soup = BeautifulSoup(html, "html.parser")
-        ids = []
+        results = []
+        seen = set()
         for cb in soup.find_all("input", {"name": "chk_id"}):
             val = cb.get("value", "")
-            if val and val not in ids:
-                ids.append(val)
-        print(f"tel={tel} → ids={ids}  (HTML長={len(html)})")
-        return ids
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            row = cb.find_parent("tr")
+            tds = row.find_all("td") if row else []
+            flag = tds[7].get_text(strip=True) if len(tds) > 7 else ""
+            results.append({"id": val, "flag": flag})
+        print(f"tel={tel} → {results}  (HTML長={len(html)})")
+        return results
 
     # ===== GUI =====
     @staticmethod
@@ -508,19 +513,33 @@ class VOSClient:
 
         PARALLEL = 5  # 同時実行数
 
+        def _safe_cookies(cookies):
+            import urllib.parse
+            safe = {}
+            for k, v in cookies.items():
+                try:
+                    str(v).encode("latin-1")
+                    safe[k] = v
+                except UnicodeEncodeError:
+                    safe[k] = urllib.parse.quote(str(v), safe="")
+            return safe
+
         def process_one(tel, cookies, call_date, call_time, rank):
             """1件処理（独立セッション）"""
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
             s = VOSClient.create_session()
-            s.cookies.update(cookies)
+            s.cookies.update(_safe_cookies(cookies))
             tmp = VOSClient.__new__(VOSClient)
             tmp.session = s
-            ids = tmp.get_id_by_tel(tel)
-            if not ids:
-                return tel, None, None
-            cid = ids[0]
+            results = tmp.get_id_by_tel(tel)
+            if not results:
+                return tel, None, None, ""
+            first = results[0]
+            cid, flag = first["id"], first["flag"]
+            if flag == "見込み":
+                return tel, cid, None, flag
             status = tmp.update_next(cid, call_date, call_time, rank)
-            return tel, cid, status
+            return tel, cid, status, flag
 
         def run_task(tel_list, call_date, call_time, rank, login_id, password):
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -539,9 +558,12 @@ class VOSClient:
                            for tel in tel_list}
                 for future in as_completed(futures):
                     try:
-                        tel, cid, status = future.result()
+                        tel, cid, status, flag = future.result()
                         if cid is None:
                             log(f"  ⚠️ 顧客なし  tel={tel}")
+                            ng += 1
+                        elif flag == "見込み":
+                            log(f"  ⏭️ スキップ（見込み）  tel={tel} → custBaseId={cid}")
                             ng += 1
                         elif status in (200, 302):
                             log(f"  ✅ OK  tel={tel} → custBaseId={cid}  ({status})")
