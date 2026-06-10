@@ -344,6 +344,15 @@
               <input type="hidden" id="u-rank" value="D" />
             </div>
 
+            <label class="flex items-start gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 cursor-pointer">
+              <input id="u-checkCarrier" type="checkbox" checked
+                     class="mt-0.5 h-4 w-4 accent-brand-600" />
+              <span>
+                <span class="block text-sm font-semibold text-brand-800">発番確認を行う</span>
+                <span class="block text-xs text-brand-700 mt-0.5">ＮＴＴ東日本の電話番号だけ更新し、それ以外はスキップします。</span>
+              </span>
+            </label>
+
             <button id="btn-update" onclick="runUpdate()" class="btn-primary mt-2">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
@@ -702,6 +711,7 @@ async function runUpdate() {
       rank:          document.getElementById('u-rank').value,
       loginUserId:   document.getElementById('u-loginUserId').value,
       secondUserId:  document.getElementById('u-secondUserId').value,
+      checkCarrier:  document.getElementById('u-checkCarrier').checked,
     })
   });
   const { jobId, error } = await res.json();

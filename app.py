@@ -6,7 +6,11 @@ from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
 import io
 
+from carrier_lookup import FixedLineCarrierLookup
 from vos import VOSClient
+
+
+carrier_lookup = FixedLineCarrierLookup()
 
 
 def _safe_cookies(cookies: dict) -> dict:
@@ -66,6 +70,7 @@ def api_update():
     password         = data.get("password", "buddy1999")
     login_user_id    = data.get("loginUserId", "381")
     second_user_id   = data.get("secondUserId", "443")
+    check_carrier    = data.get("checkCarrier", True) is True
 
     jid = new_job()
 
@@ -79,49 +84,64 @@ def api_update():
             cookies = vos.session.cookies.get_dict()
             log(f"[{_now()}] ログイン成功")
             log(f"[{_now()}] 開始: {len(tel_list)}件  日付={call_date}  時間={call_time}  ランク={rank}")
-
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-
-            PARALLEL = 5
+            log(f"[{_now()}] 発番確認: {'ON（ＮＴＴ東日本のみ更新）' if check_carrier else 'OFF'}")
             ok = ng = 0
 
             def process_one(tel):
+                if check_carrier:
+                    try:
+                        carrier_result = carrier_lookup.lookup(tel)
+                    except Exception as exc:
+                        return tel, None, None, "", (), str(exc)
+                    if carrier_result.error:
+                        return tel, None, None, "", (), carrier_result.error
+                    if "ＮＴＴ東日本" not in carrier_result.carriers:
+                        return tel, None, None, "", carrier_result.carriers, None
+
                 s = VOSClient.create_session()
                 s.cookies.update(_safe_cookies(cookies))
                 tmp = VOSClient.__new__(VOSClient)
                 tmp.session = s
                 results = tmp.get_id_by_tel(tel)
                 if not results:
-                    return tel, None, None, ""
+                    return tel, None, None, "", ("ＮＴＴ東日本",) if check_carrier else (), None
                 first = results[0]
                 cid, flag = first["id"], first["flag"]
                 if flag == "見込み":
-                    return tel, cid, None, flag
+                    return tel, cid, None, flag, ("ＮＴＴ東日本",) if check_carrier else (), None
                 status = tmp.update_next(cid, call_date, call_time, rank,
                                         login_user_id=login_user_id,
                                         cust_second_user_id=second_user_id)
-                return tel, cid, status, flag
+                return tel, cid, status, flag, ("ＮＴＴ東日本",) if check_carrier else (), None
 
-            with ThreadPoolExecutor(max_workers=PARALLEL) as executor:
-                futures = {executor.submit(process_one, tel): tel for tel in tel_list}
-                for future in as_completed(futures):
-                    try:
-                        tel, cid, status, flag = future.result()
-                        if cid is None:
-                            log(f"[{_now()}] ⚠ 顧客なし  tel={tel}")
-                            ng += 1
-                        elif flag == "見込み":
-                            log(f"[{_now()}] ⏭ スキップ（見込み）  tel={tel} → id={cid}")
-                            ng += 1
-                        elif status in (200, 302):
-                            log(f"[{_now()}] ✓ OK  tel={tel} → id={cid}  ({status})")
-                            ok += 1
-                        else:
-                            log(f"[{_now()}] ✗ NG  tel={tel} → id={cid}  ({status})")
-                            ng += 1
-                    except Exception as e:
-                        log(f"[{_now()}] ✗ ERR  tel={futures[future]}  {e}")
+            for position, tel in enumerate(tel_list, start=1):
+                log(f"[{_now()}] [{position}/{len(tel_list)}] 処理中  tel={tel}")
+                try:
+                    tel, cid, status, flag, carriers, carrier_error = process_one(tel)
+                    carrier_name = " / ".join(carriers) if carriers else "判定なし"
+
+                    if carrier_error:
+                        log(f"[{_now()}] ⏭ 発番判定エラーのためスキップ  tel={tel}  理由={carrier_error}")
                         ng += 1
+                    elif check_carrier and "ＮＴＴ東日本" not in carriers:
+                        log(f"[{_now()}] ⏭ 発番={carrier_name} のためスキップ  tel={tel}")
+                        ng += 1
+                    elif cid is None:
+                        log(f"[{_now()}] ⚠ 発番={carrier_name} / 顧客なし  tel={tel}")
+                        ng += 1
+                    elif flag == "見込み":
+                        log(f"[{_now()}] ⏭ スキップ（見込み）  tel={tel} → id={cid}")
+                        ng += 1
+                    elif status in (200, 302):
+                        carrier_log = f"  発番={carrier_name}" if check_carrier else ""
+                        log(f"[{_now()}] ✓ OK  tel={tel} → id={cid}  ({status}){carrier_log}")
+                        ok += 1
+                    else:
+                        log(f"[{_now()}] ✗ NG  tel={tel} → id={cid}  ({status})")
+                        ng += 1
+                except Exception as e:
+                    log(f"[{_now()}] ✗ ERR  tel={tel}  {e}")
+                    ng += 1
 
             jobs[jid]["ok"] = ok
             jobs[jid]["ng"] = ng
