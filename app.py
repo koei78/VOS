@@ -1,6 +1,7 @@
 import threading
 import uuid
 import json
+import os
 import urllib.parse
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
@@ -11,6 +12,8 @@ from vos import VOSClient
 
 
 carrier_lookup = FixedLineCarrierLookup()
+DEFAULT_LOGIN_ID = os.getenv("VOS_DEFAULT_LOGIN_ID", "SDBDY07016")
+DEFAULT_PASSWORD = os.getenv("VOS_DEFAULT_PASSWORD", "")
 
 
 def _safe_cookies(cookies: dict) -> dict:
@@ -49,6 +52,21 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/users", methods=["POST"])
+def api_users():
+    data = request.json or {}
+    login_id = data.get("loginId") or DEFAULT_LOGIN_ID
+    password = data.get("password") or DEFAULT_PASSWORD
+    if not login_id or not password:
+        return jsonify({"error": "ログインIDとパスワードを入力してください"}), 400
+    try:
+        vos = VOSClient(login_id, password)
+        users = vos.get_user_options()
+        return jsonify({"users": users})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ─────────────────────────────────────────────
 # API: 見込み一括更新
 # ─────────────────────────────────────────────
@@ -66,11 +84,13 @@ def api_update():
     call_date        = data.get("callDate", "")
     call_time        = data.get("callTime", "09:00")
     rank             = data.get("rank", "D")
-    login_id         = data.get("loginId", "SDBDY07009")
-    password         = data.get("password", "buddy1999")
+    login_id         = data.get("loginId") or DEFAULT_LOGIN_ID
+    password         = data.get("password") or DEFAULT_PASSWORD
     login_user_id    = data.get("loginUserId", "381")
     second_user_id   = data.get("secondUserId", "443")
     check_carrier    = data.get("checkCarrier", True) is True
+    if not login_id or not password:
+        return jsonify({"error": "ログインIDとパスワードを入力してください"}), 400
 
     jid = new_job()
 
@@ -161,11 +181,13 @@ def api_update():
 @app.route("/api/download", methods=["POST"])
 def api_download():
     data = request.json or {}
-    login_id   = data.get("loginId", "SDBDY07009")
-    password   = data.get("password", "buddy1999")
+    login_id   = data.get("loginId") or DEFAULT_LOGIN_ID
+    password   = data.get("password") or DEFAULT_PASSWORD
     start_date = data.get("startDate", "")
     end_date   = data.get("endDate", "")
     in_out     = data.get("inOutFlag", "2")
+    if not login_id or not password:
+        return jsonify({"error": "ログインIDとパスワードを入力してください"}), 400
 
     jid = new_job()
 
@@ -204,8 +226,10 @@ def api_download():
 @app.route("/api/merge", methods=["POST"])
 def api_merge():
     data = request.json or {}
-    login_id = data.get("loginId", "SDBDY07009")
-    password = data.get("password", "buddy1999")
+    login_id = data.get("loginId") or DEFAULT_LOGIN_ID
+    password = data.get("password") or DEFAULT_PASSWORD
+    if not login_id or not password:
+        return jsonify({"error": "ログインIDとパスワードを入力してください"}), 400
 
     jid = new_job()
 

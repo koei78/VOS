@@ -3,6 +3,7 @@ import os
 import requests
 
 from bs4 import BeautifulSoup
+from bs4 import NavigableString
 import re
 
 
@@ -27,7 +28,9 @@ class VOSClient:
             session.proxies.update({"http": None, "https": None})
         return session
 
-    def __init__(self, login_id="SDBDY07009", password="buddy1999"):
+    def __init__(self, login_id=None, password=None):
+        login_id = login_id or os.getenv("VOS_DEFAULT_LOGIN_ID", "SDBDY07016")
+        password = password or os.getenv("VOS_DEFAULT_PASSWORD", "")
 
         self.session = self.create_session()
 
@@ -64,6 +67,68 @@ class VOSClient:
 
         print("POST login:", r1.status_code)
         print("final url:", r1.url)
+
+    def get_user_options(self):
+        """VOSの検索画面から現在の担当者一覧を取得する。"""
+        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        r = self.session.get(self.SEARCH_PAGE, headers={"User-Agent": ua}, timeout=30)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        users = self._extract_checkbox_users(
+            soup,
+            ("custFirstUserId", "custSecondUserId", "custBaseLastCallLogUserId"),
+        )
+        if not users:
+            users = self._extract_select_users(soup, ("loginUserId", "custSecondUserId", "userId"))
+        if not users:
+            raise RuntimeError("VOSの担当者一覧を取得できませんでした")
+        return users
+
+    @staticmethod
+    def _extract_checkbox_users(soup, field_names):
+        seen = set()
+        users = []
+        for field_name in field_names:
+            for tag in soup.find_all("input", {"name": field_name}):
+                user_id = (tag.get("value") or "").strip()
+                if not user_id or user_id in seen:
+                    continue
+                name = VOSClient._text_after_input(tag)
+                if not name:
+                    continue
+                seen.add(user_id)
+                users.append({"id": user_id, "name": name})
+        return users
+
+    @staticmethod
+    def _extract_select_users(soup, field_names):
+        seen = set()
+        users = []
+        for field_name in field_names:
+            for select in soup.find_all("select", {"name": field_name}):
+                for option in select.find_all("option"):
+                    user_id = (option.get("value") or "").strip()
+                    name = option.get_text(strip=True)
+                    if not user_id or user_id in seen or name == "--":
+                        continue
+                    seen.add(user_id)
+                    users.append({"id": user_id, "name": name})
+        return users
+
+    @staticmethod
+    def _text_after_input(tag):
+        parts = []
+        for sibling in tag.next_siblings:
+            sibling_name = getattr(sibling, "name", None)
+            if sibling_name in {"br", "input"}:
+                break
+            if isinstance(sibling, NavigableString):
+                parts.append(str(sibling))
+            else:
+                parts.append(sibling.get_text(" ", strip=True))
+        return "".join(parts).strip()
+
     def update_next(self, cust_base_id, call_date, call_time, rank,
                     login_user_id="381", login_group_id="7",
                     cust_second_user_id="381", cust_second_group_id="7"):

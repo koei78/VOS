@@ -151,13 +151,13 @@
       <div id="cred-panel" class="expanded space-y-2 mt-2">
         <div>
           <label class="label">ログインID</label>
-          <input id="g-loginId" type="text" class="input" placeholder="SDBDY07009"
+          <input id="g-loginId" type="text" class="input" placeholder="SDBDY07016"
                  oninput="saveCred()" />
         </div>
         <div>
           <label class="label">パスワード</label>
           <div class="relative mt-1">
-            <input id="g-password" type="password" class="input !mt-0 pr-9" placeholder="••••••••"
+            <input id="g-password" type="password" class="input !mt-0 pr-9" placeholder="パスワードを入力"
                    oninput="saveCred()" />
             <button onclick="togglePw()" tabindex="-1"
               class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -225,10 +225,16 @@
 
           <!-- 設定カード -->
           <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
-            <h2 class="font-semibold text-gray-800 flex items-center gap-2 text-sm">
-              <span class="w-6 h-6 rounded-md bg-brand-100 flex items-center justify-center text-brand-600 text-xs font-bold">1</span>
-              更新内容
-            </h2>
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="font-semibold text-gray-800 flex items-center gap-2 text-sm">
+                <span class="w-6 h-6 rounded-md bg-brand-100 flex items-center justify-center text-brand-600 text-xs font-bold">1</span>
+                更新内容
+              </h2>
+              <button id="btn-refresh-users" onclick="refreshUsersFromVos(true)"
+                      class="text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-1.5 hover:bg-brand-100 transition-colors">
+                担当者をVOSから更新
+              </button>
+            </div>
 
             <!-- 担当者 -->
             <div class="grid grid-cols-2 gap-3">
@@ -553,16 +559,29 @@ switchTab('update');
 
 // ─── 認証情報（localStorage 永続化） ─────
 const STORAGE_KEY = 'vos_cred';
+const USERS_STORAGE_KEY = 'vos_users';
 
 function loadCred() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const { loginId, password } = JSON.parse(raw);
+    if (!raw) {
+      document.getElementById('g-loginId').value = 'SDBDY07016';
+      updateSidebarUser();
+      return;
+    }
+    let { loginId, password } = JSON.parse(raw);
+    if (loginId === 'SDBDY07009') {
+      loginId = 'SDBDY07016';
+      password = '';
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ loginId, password }));
+      showToast('ログインIDを現在のVOS用に更新しました。パスワードを入力してください');
+    }
     if (loginId) document.getElementById('g-loginId').value  = loginId;
     if (password) document.getElementById('g-password').value = password;
     updateSidebarUser();
     if (loginId || password) showSavedIndicator();
+    loadCachedUsers();
+    if (loginId && password) setTimeout(() => refreshUsersFromVos(false), 300);
   } catch(_) {}
 }
 
@@ -582,6 +601,15 @@ function getCred() {
   };
 }
 
+function requireCred() {
+  const cred = getCred();
+  if (!cred.loginId || !cred.password) {
+    showToast('ログインIDとパスワードを入力してください');
+    return null;
+  }
+  return cred;
+}
+
 function updateSidebarUser() {
   const id = document.getElementById('g-loginId').value;
   document.getElementById('sidebar-loginId').textContent = id || '—';
@@ -591,6 +619,76 @@ function showSavedIndicator() {
   const el = document.getElementById('cred-saved');
   el.classList.remove('hidden');
   el.classList.add('flex');
+}
+
+function ensureServerPage(showMessage = true) {
+  if (location.protocol !== 'file:') return true;
+  if (showMessage) {
+    showToast('この画面は http://127.0.0.1:5000/ で開いてください');
+  }
+  return false;
+}
+
+function loadCachedUsers() {
+  try {
+    const raw = localStorage.getItem(USERS_STORAGE_KEY);
+    if (!raw) return;
+    const { users } = JSON.parse(raw);
+    if (Array.isArray(users) && users.length) applyUserOptions(users);
+  } catch(_) {}
+}
+
+function applyUserOptions(users) {
+  const selects = [
+    document.getElementById('u-loginUserId'),
+    document.getElementById('u-secondUserId'),
+  ];
+  selects.forEach(select => {
+    const current = select.value;
+    select.innerHTML = '';
+    users.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.textContent = user.name;
+      select.appendChild(option);
+    });
+    if ([...select.options].some(option => option.value === current)) {
+      select.value = current;
+    }
+  });
+}
+
+async function refreshUsersFromVos(showMessage = true) {
+  const btn = document.getElementById('btn-refresh-users');
+  if (!ensureServerPage(showMessage)) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
+
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '更新中...';
+  try {
+    const res = await fetch('/api/users', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ loginId, password })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '担当者一覧の取得に失敗しました');
+
+    applyUserOptions(data.users);
+    localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify({
+      users: data.users,
+      updatedAt: new Date().toISOString()
+    }));
+    if (showMessage) showToast(`担当者を${data.users.length}件更新しました`);
+  } catch (e) {
+    if (showMessage) showToast(e.message || '担当者一覧の取得に失敗しました');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
 }
 
 // ─── パスワード表示切替 ──────────────────
@@ -699,8 +797,10 @@ async function runUpdate() {
   const btn = document.getElementById('btn-update');
   const telList = document.getElementById('u-telList').value;
   if (!telList.trim()) { showToast('電話番号を入力してください'); return; }
-  const { loginId, password } = getCred();
-  if (!loginId) { showToast('左のパネルで認証情報を入力してください'); return; }
+  if (!ensureServerPage()) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
 
   const res = await fetch('/api/update', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -724,8 +824,10 @@ async function runUpdate() {
 
 async function runDownload() {
   const btn = document.getElementById('btn-download');
-  const { loginId, password } = getCred();
-  if (!loginId) { showToast('左のパネルで認証情報を入力してください'); return; }
+  if (!ensureServerPage()) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
 
   const res = await fetch('/api/download', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -742,8 +844,10 @@ async function runDownload() {
 
 async function runMerge() {
   const btn = document.getElementById('btn-merge');
-  const { loginId, password } = getCred();
-  if (!loginId) { showToast('左のパネルで認証情報を入力してください'); return; }
+  if (!ensureServerPage()) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
 
   const res = await fetch('/api/merge', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -755,6 +859,10 @@ async function runMerge() {
 
 // ─── 起動時に認証情報ロード ──────────────
 loadCred();
+loadCachedUsers();
+if (location.protocol === 'file:') {
+  showToast('Flaskを起動して http://127.0.0.1:5000/ で開いてください');
+}
 </script>
 </body>
 </html>
