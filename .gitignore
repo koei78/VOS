@@ -10,5 +10,11 @@ venv/
 .python-version
 call_log.csv
 cleaned_split.csv
+call_history.sqlite3
+*.sqlite3-journal
+download_outputs/
+flask_*.log
+flask_*.err.log
 response.html
 debug_search.html
+debug_*.html

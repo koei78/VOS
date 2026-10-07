@@ -1,10 +1,13 @@
 import csv
+import io
 import os
 import requests
+import zipfile
 
 from bs4 import BeautifulSoup
 from bs4 import NavigableString
 import re
+from urllib.parse import urljoin
 
 
 class VOSClient:
@@ -39,16 +42,19 @@ class VOSClient:
         try:
             r0 = self.session.get(self.LOGIN_URL, headers={"User-Agent": ua})
             print("GET login:", r0.status_code, "cookies:", self.session.cookies.get_dict())
+            soup = BeautifulSoup(r0.text, "html.parser")
+            form = soup.find("form")
+            login_action = urljoin(self.BASE, form.get("action")) if form else self.LOGIN_URL
 
             payload = {
                 "userLoginId": login_id,
                 "userPassword": password,
                 "applePcMode": "yes",
-                "goOnLogin": "はい",
+                "login": "ログイン",
             }
 
             r1 = self.session.post(
-                self.LOGIN_URL,
+                login_action,
                 data=payload,
                 headers={
                     "User-Agent": ua,
@@ -58,6 +64,33 @@ class VOSClient:
                 },
                 allow_redirects=True,
             )
+
+            if "goOnLogin" in r1.text:
+                soup = BeautifulSoup(r1.text, "html.parser")
+                form = soup.find("form")
+                go_on_action = urljoin(self.BASE, form.get("action")) if form else self.LOGIN_URL
+                go_on_payload = {}
+                for tag in soup.find_all("input"):
+                    name = tag.get("name")
+                    if name:
+                        go_on_payload[name] = tag.get("value", "")
+                go_on_payload.update({
+                    "userLoginId": login_id,
+                    "userPassword": password,
+                    "applePcMode": "yes",
+                    "goOnLogin": "はい",
+                })
+                r1 = self.session.post(
+                    go_on_action,
+                    data=go_on_payload,
+                    headers={
+                        "User-Agent": ua,
+                        "Origin": self.BASE,
+                        "Referer": r1.url,
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    allow_redirects=True,
+                )
         except requests.exceptions.ProxyError as e:
             raise RuntimeError(
                 "プロキシ経由でVOSに接続できませんでした。"
@@ -214,7 +247,7 @@ class VOSClient:
         )
         return resp.status_code
 
-    def topname(self, id):
+    def topname(self, id, debug_file=None):
         url = f"https://line005.socio-vos.com/vos/custom/edit/{id}"
         params = {
             "backURI": "prospectManagement"
@@ -228,12 +261,11 @@ class VOSClient:
         }
 
         r = self.session.get(url, params=params, headers=headers)
-        with open("response.html", "w", encoding="utf-8") as f:
-            f.write(r.text)
-
-        print("HTML保存完了")
-        with open("response.html", "r", encoding="utf-8") as f:
-            html = f.read()
+        html = r.text
+        if debug_file:
+            with open(debug_file, "w", encoding="utf-8") as f:
+                f.write(html)
+            print("HTML保存完了")
 
         soup = BeautifulSoup(html, "html.parser")
 
@@ -441,7 +473,23 @@ class VOSClient:
         # 検索ページをGETしてからPOST
         self.session.get(self.SEARCH_PAGE, headers={"User-Agent": ua})
 
-        search_payload = {
+        search_payload = self._search_payload(tel)
+
+        res = self.session.post(
+            self.SEARCH_POST,
+            data=search_payload,
+            headers={
+                "User-Agent": ua,
+                "Origin": self.BASE,
+                "Referer": self.SEARCH_PAGE,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+
+        return res.text
+
+    def _search_payload(self, tel):
+        return {
             "encPassword": "",
             "isOnlyContractInfo": "",
             "lastCalledId": "",
@@ -470,18 +518,64 @@ class VOSClient:
             "sreachOptionsList": "01",
         }
 
-        res = self.session.post(
+    def customer_data_export_by_tels(self, tels, csv_export_format_id="9"):
+        """複数電話番号の検索結果を「顧客データ出力（商材）」形式でCSV出力する。"""
+        tel_text = "\n".join(str(tel).strip() for tel in tels if str(tel or "").strip())
+        if not tel_text:
+            return []
+        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
+        self.session.get(self.SEARCH_PAGE, headers={"User-Agent": ua}, timeout=30)
+        payload = self._search_payload(tel_text)
+        search_res = self.session.post(
             self.SEARCH_POST,
-            data=search_payload,
+            data=payload,
             headers={
                 "User-Agent": ua,
                 "Origin": self.BASE,
                 "Referer": self.SEARCH_PAGE,
                 "Content-Type": "application/x-www-form-urlencoded",
             },
+            timeout=60,
         )
+        search_res.raise_for_status()
+        payload.update({
+            "csvExportFormatId": csv_export_format_id,
+            "curentPage": "1",
+            "movePage": "",
+        })
+        res = self.session.post(
+            f"{self.BASE}/vos/customComplexSearch/csvDownload",
+            data=payload,
+            headers={
+                "User-Agent": ua,
+                "Origin": self.BASE,
+                "Referer": self.SEARCH_PAGE,
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            timeout=60,
+        )
+        res.raise_for_status()
+        content = res.content
+        if content.lstrip()[:5].lower() in (b'<?xml', b'<!doc', b'<html'):
+            raise RuntimeError("顧客データ出力でCSVではなくHTMLが返されました")
+        if content[:2] == b"PK":
+            with zipfile.ZipFile(io.BytesIO(content)) as z:
+                csv_name = next(name for name in z.namelist() if name.endswith(".csv"))
+                content = z.read(csv_name)
 
-        return res.text
+        for encoding in ("utf-8-sig", "cp932"):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                text = None
+        if text is None:
+            text = content.decode("utf-8", errors="replace")
+        return list(csv.DictReader(io.StringIO(text)))
+
+    def customer_data_export_by_tel(self, tel, csv_export_format_id="9"):
+        """単一電話番号の検索結果を「顧客データ出力（商材）」形式でCSV出力する。"""
+        return self.customer_data_export_by_tels([tel], csv_export_format_id=csv_export_format_id)
 
     def get_id_by_tel(self, tel):
         """電話番号→[{"id": 顧客ID, "flag": 最終通話フラグ}] を返す（見つからなければ空リスト）"""

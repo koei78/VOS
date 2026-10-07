@@ -126,6 +126,18 @@
         </svg>
         CSV マージ
       </button>
+      <button onclick="switchTab('history')"  id="nav-history"  class="nav-item">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 7c0-1.657 3.582-3 8-3s8 1.343 8 3-3.582 3-8 3-8-1.343-8-3zm0 0v10c0 1.657 3.582 3 8 3s8-1.343 8-3V7m-16 5c0 1.657 3.582 3 8 3s8-1.343 8-3"/>
+        </svg>
+        全履歴 DB
+      </button>
+      <button onclick="switchTab('manageUsers')"  id="nav-manageUsers"  class="nav-item">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m10-4a4 4 0 11-8 0 4 4 0 018 0zm-10 0a4 4 0 11-8 0 4 4 0 018 0z"/>
+        </svg>
+        ユーザー管理
+      </button>
     </nav>
 
     <!-- 区切り -->
@@ -431,11 +443,47 @@
                 <option value="">両方</option>
               </select>
             </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="label">担当者</label>
+                <input id="d-userFilter" type="text" class="input" placeholder="例: 篠崎" />
+              </div>
+              <div>
+                <label class="label">時間帯</label>
+                <select id="d-hourFilter" class="input">
+                  <option value="">すべて</option>
+                  <option value="8">8時</option><option value="9">9時</option>
+                  <option value="10">10時</option><option value="11">11時</option>
+                  <option value="12">12時</option><option value="13">13時</option>
+                  <option value="14">14時</option><option value="15">15時</option>
+                  <option value="16">16時</option><option value="17">17時</option>
+                  <option value="18">18時</option><option value="19">19時</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="label">詳細キーワード</label>
+              <input id="d-keywordFilter" type="text" class="input" placeholder="例: 代表 / 時間 / 明細 / クレカ" />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="label">最小通話秒数</label>
+                <input id="d-minSeconds" type="number" min="0" class="input" placeholder="例: 30" />
+              </div>
+              <div>
+                <label class="label">VOS検索する電話番号</label>
+                <select id="d-phoneField" class="input">
+                  <option value="receiver_number">受信者番号</option>
+                  <option value="caller_number">発信者番号</option>
+                  <option value="representative_number">代表番号</option>
+                </select>
+              </div>
+            </div>
             <button id="btn-download" onclick="runDownload()" class="btn-primary mt-2">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-              ダウンロード実行
+              絞り込み・代表者名あり出力
             </button>
           </div>
 
@@ -472,6 +520,7 @@
                 <a href="/api/csv/cleaned_split.csv"
                    class="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition">保存</a>
               </div>
+              <div id="d-output-files" class="hidden flex flex-col gap-3"></div>
             </div>
           </div>
         </div>
@@ -535,6 +584,191 @@
         </div>
       </div>
 
+      <!-- ════ タブ: 全履歴DB ════ -->
+      <div id="tab-history" class="tab-panel hidden fade-in">
+        <div class="bg-white border border-gray-200 shadow-sm overflow-hidden">
+          <div class="flex flex-col xl:flex-row xl:items-center gap-2 p-2 border-b border-gray-200 bg-gray-50">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <button onclick="loadHistory(1)" title="検索"
+                      class="h-9 w-9 flex items-center justify-center rounded-md border border-slate-300 bg-slate-600 text-white hover:bg-slate-700 shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M6 12h12M10 20h4"/>
+                </svg>
+              </button>
+              <input id="h-search" type="search"
+                     class="h-9 flex-1 min-w-[220px] rounded-md border border-gray-300 bg-white px-3 text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                     placeholder="プロジェクト・名前・電話番号・登録者"
+                     onkeydown="if(event.key==='Enter') loadHistory(1)" />
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <input id="h-startDate" type="date" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs outline-none focus:border-brand-500" />
+              <input id="h-endDate" type="date" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs outline-none focus:border-brand-500" />
+              <select id="h-inOutFlag" class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs outline-none focus:border-brand-500">
+                <option value="">両方</option>
+                <option value="2">発信のみ</option>
+                <option value="1">着信のみ</option>
+              </select>
+              <button id="btn-history-sync" onclick="runHistorySync()"
+                      class="h-9 inline-flex items-center gap-1.5 rounded-md bg-amber-400 px-4 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                履歴更新
+              </button>
+              <button id="btn-representative-backfill" onclick="runRepresentativeBackfill()"
+                      class="h-9 inline-flex items-center gap-1.5 rounded-md bg-sky-500 px-4 text-xs font-semibold text-white hover:bg-sky-600 disabled:opacity-50">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m10-4a4 4 0 11-8 0 4 4 0 018 0zm-10 0a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                代表者名を一括取得
+              </button>
+              <button onclick="refreshHistoryView()"
+                      class="h-9 inline-flex items-center gap-1.5 rounded-md bg-rose-400 px-4 text-xs font-semibold text-white hover:bg-rose-500">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                表示を更新する
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-0 border-b border-gray-200">
+            <div class="p-4">
+              <div class="flex items-center justify-between gap-3 mb-2">
+                <div>
+                  <h3 class="text-sm font-semibold text-gray-800">通話履歴グラフ</h3>
+                  <p id="h-range" class="text-xs text-gray-400 mt-0.5">—</p>
+                </div>
+                <div class="text-right">
+                  <p class="text-xs text-gray-400">DB件数</p>
+                  <p id="h-total" class="text-xl font-bold text-gray-900">—</p>
+                  <p id="h-rep-stats" class="text-xs text-gray-400 mt-1">代表者 —</p>
+                </div>
+              </div>
+              <canvas id="h-chart" height="120" class="w-full h-32"></canvas>
+            </div>
+            <div class="border-t xl:border-t-0 xl:border-l border-gray-200 p-4 bg-gray-50">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-700">同期ログ</h3>
+                <p id="h-page-info" class="text-xs text-gray-400">—</p>
+              </div>
+              <pre id="h-log" class="log-box bg-gray-950 text-gray-100 rounded-md p-3 text-xs font-mono h-32 overflow-y-auto whitespace-pre-wrap"></pre>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[620px]">
+            <table class="min-w-full text-xs border-collapse">
+              <thead id="h-table-head" class="sticky top-0 bg-white text-gray-700 border-b border-gray-200"></thead>
+              <tbody id="h-table-body" class="divide-y divide-gray-200"></tbody>
+            </table>
+          </div>
+          <div class="p-3 border-t border-gray-200 flex items-center justify-between bg-white">
+            <button id="h-prev" onclick="changeHistoryPage(-1)" class="text-xs font-semibold text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 hover:bg-gray-100 transition-colors">前へ</button>
+            <span id="h-page" class="text-xs text-gray-400">1</span>
+            <button id="h-next" onclick="changeHistoryPage(1)" class="text-xs font-semibold text-gray-600 bg-gray-50 border border-gray-200 rounded-md px-3 py-2 hover:bg-gray-100 transition-colors">次へ</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════ タブ: ユーザー管理 ════ -->
+      <div id="tab-manageUsers" class="tab-panel hidden fade-in">
+        <div class="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-6">
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
+            <div class="flex items-center justify-between gap-3">
+              <h2 class="font-semibold text-gray-800 text-sm">ユーザー追加・編集</h2>
+              <button onclick="resetManagedUserForm()"
+                      class="text-xs font-semibold text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-100 transition-colors">
+                新規入力
+              </button>
+            </div>
+            <input id="mu-row" type="hidden" />
+            <div>
+              <label class="label">表示順</label>
+              <input id="mu-order" type="number" min="1" class="input" placeholder="自動" />
+            </div>
+            <div>
+              <label class="label">ユーザー名</label>
+              <input id="mu-name" type="text" class="input" placeholder="例: 小川" />
+            </div>
+            <label class="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3 cursor-pointer">
+              <span>
+                <span class="block text-sm font-semibold text-gray-800">有効</span>
+                <span class="block text-xs text-gray-400 mt-0.5">ONの人だけ集計対象にします</span>
+              </span>
+              <input id="mu-enabled" type="checkbox" checked class="h-5 w-5 accent-brand-600" />
+            </label>
+            <div>
+              <label class="label">メモ</label>
+              <textarea id="mu-memo" rows="4" class="input resize-none" placeholder="必要ならメモ"></textarea>
+            </div>
+            <button id="btn-mu-save" onclick="saveManagedUser()" class="btn-primary">
+              保存してシートへ反映
+            </button>
+            <div class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+              <p class="text-xs text-slate-500 leading-relaxed">
+                対象シート: 管理タブ A:E。追加・編集・有効無効・削除はスプレッドシートへ直接反映されます。
+              </p>
+            </div>
+          </div>
+
+          <div class="bg-white border border-gray-200 shadow-sm overflow-hidden">
+            <div class="flex flex-col lg:flex-row lg:items-center gap-2 p-2 border-b border-gray-200 bg-gray-50">
+              <div class="flex items-center gap-2 flex-1 min-w-0">
+                <button onclick="loadManagedUsers()" title="検索"
+                        class="h-9 w-9 flex items-center justify-center rounded-md border border-slate-300 bg-slate-600 text-white hover:bg-slate-700 shrink-0">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 4h18M6 12h12M10 20h4"/>
+                  </svg>
+                </button>
+                <input id="mu-search" type="search"
+                       class="h-9 flex-1 min-w-[220px] rounded-md border border-gray-300 bg-white px-3 text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                       placeholder="ユーザー名・メモで検索"
+                       oninput="renderManagedUsers()" />
+              </div>
+              <div class="flex items-center gap-2">
+                <select id="mu-status-filter" onchange="renderManagedUsers()"
+                        class="h-9 rounded-md border border-gray-300 bg-white px-2 text-xs outline-none focus:border-brand-500">
+                  <option value="">すべて</option>
+                  <option value="enabled">有効のみ</option>
+                  <option value="disabled">無効のみ</option>
+                </select>
+                <button id="btn-mu-reload" onclick="loadManagedUsers()"
+                        class="h-9 inline-flex items-center gap-1.5 rounded-md bg-amber-400 px-4 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-50">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                  </svg>
+                  シート再読込
+                </button>
+              </div>
+            </div>
+
+            <div class="p-3 border-b border-gray-200 flex items-center justify-between bg-white">
+              <div class="text-xs text-gray-500">
+                <span id="mu-total">0</span>件 / 有効 <span id="mu-enabled-count">0</span>件
+              </div>
+              <div id="mu-sheet-name" class="text-xs text-gray-400">—</div>
+            </div>
+
+            <div class="overflow-auto max-h-[640px]">
+              <table class="min-w-full text-xs border-collapse">
+                <thead class="sticky top-0 bg-white text-gray-700 border-b border-gray-200">
+                  <tr>
+                    <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">表示順</th>
+                    <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">ユーザー名</th>
+                    <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">有効</th>
+                    <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">登録日時</th>
+                    <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">メモ</th>
+                    <th class="px-3 py-2 text-right font-semibold whitespace-nowrap">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="mu-table-body" class="divide-y divide-gray-200"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /スクロールエリア -->
   </main>
 </div>
@@ -546,6 +780,8 @@ const TAB_META = {
   update:   { title:'見込み一括更新',       sub:'電話番号リストからVOS顧客情報を一括更新' },
   download: { title:'通話履歴ダウンロード', sub:'指定期間の通話履歴CSVをダウンロード' },
   merge:    { title:'CSV マージ',           sub:'call_log.csv を cleaned_split.csv へ追記' },
+  history:  { title:'全履歴 DB',            sub:'VOSの通話履歴をSQLiteへ保存して一覧表示' },
+  manageUsers: { title:'ユーザー管理',       sub:'スプレッドシートの管理タブへユーザー設定を反映' },
 };
 function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
@@ -554,6 +790,12 @@ function switchTab(name) {
   document.getElementById('nav-' + name).classList.add('nav-active');
   document.getElementById('page-title').textContent = TAB_META[name].title;
   document.getElementById('page-sub').textContent   = TAB_META[name].sub;
+  if (name === 'history') {
+    loadHistoryStats();
+    loadHistoryChart();
+    loadHistory(historyState.page);
+  }
+  if (name === 'manageUsers') loadManagedUsers();
 }
 switchTab('update');
 
@@ -756,6 +998,8 @@ document.getElementById('u-telList').addEventListener('input', function() {
   document.getElementById('u-callDate').value   = today;
   document.getElementById('d-startDate').value  = today.slice(0, 8) + '01';
   document.getElementById('d-endDate').value    = today;
+  document.getElementById('h-startDate').value  = '2022-01-01';
+  document.getElementById('h-endDate').value    = today;
 })();
 
 // ─── ログ ────────────────────────────────
@@ -767,7 +1011,7 @@ function appendLog(id, text) {
 function clearLog(id) { document.getElementById(id).textContent = ''; }
 
 // ─── ジョブポーリング ────────────────────
-function pollJob(jobId, logId, btn, onDone) {
+function pollJob(jobId, logId, btn, onDone, onProgress) {
   let lastLen = 0;
   document.getElementById('status-badge').classList.remove('hidden');
   document.getElementById('status-badge').classList.add('flex');
@@ -778,6 +1022,7 @@ function pollJob(jobId, logId, btn, onDone) {
       const data = await fetch('/api/job/' + jobId).then(r => r.json());
       data.logs.slice(lastLen).forEach(l => appendLog(logId, l));
       lastLen = data.logs.length;
+      if (onProgress) onProgress(data);
       if (data.done) {
         clearInterval(iv);
         btn.disabled = false;
@@ -828,6 +1073,9 @@ async function runDownload() {
   const cred = requireCred();
   if (!cred) return;
   const { loginId, password } = cred;
+  const outputBox = document.getElementById('d-output-files');
+  outputBox.classList.add('hidden');
+  outputBox.innerHTML = '';
 
   const res = await fetch('/api/download', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -836,10 +1084,41 @@ async function runDownload() {
       startDate: document.getElementById('d-startDate').value,
       endDate:   document.getElementById('d-endDate').value,
       inOutFlag: document.getElementById('d-inOutFlag').value,
+      userFilter: document.getElementById('d-userFilter').value,
+      keywordFilter: document.getElementById('d-keywordFilter').value,
+      hourFilter: document.getElementById('d-hourFilter').value,
+      minSeconds: document.getElementById('d-minSeconds').value,
+      phoneField: document.getElementById('d-phoneField').value,
     })
   });
-  const { jobId } = await res.json();
-  pollJob(jobId, 'd-log', btn, null);
+  const { jobId, error } = await res.json();
+  if (error) { showToast(error); return; }
+  pollJob(jobId, 'd-log', btn, data => {
+    if (!data.downloadCsv && !data.downloadZip) return;
+    const links = [];
+    if (data.downloadCsv) {
+      links.push(`
+        <a href="/api/download-output/${encodeURIComponent(data.downloadCsv)}"
+           class="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg hover:bg-brand-700 transition">代表者名ありCSV</a>
+      `);
+    }
+    if (data.downloadZip) {
+      links.push(`
+        <a href="/api/download-output/${encodeURIComponent(data.downloadZip)}"
+           class="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition">時間別ZIP</a>
+      `);
+    }
+    outputBox.innerHTML = `
+      <div class="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-100">
+        <div>
+          <p class="text-sm font-medium text-gray-800">代表者名あり出力</p>
+          <p class="text-xs text-gray-500">代表者名あり ${data.ok || 0}件 / 対象外 ${data.ng || 0}件</p>
+        </div>
+        <div class="flex gap-2">${links.join('')}</div>
+      </div>
+    `;
+    outputBox.classList.remove('hidden');
+  });
 }
 
 async function runMerge() {
@@ -855,6 +1134,402 @@ async function runMerge() {
   });
   const { jobId } = await res.json();
   pollJob(jobId, 'm-log', btn, null);
+}
+
+const historyState = { page: 1, limit: 50, total: 0, columns: [] };
+const historyTableColumns = [
+  { key:'select', label:'' },
+  { key:'log_id', label:'再コールID' },
+  { key:'call_datetime', label:'指定時間' },
+  { key:'project_list', label:'プロジェクト' },
+  { key:'customer_name', label:'名前' },
+  { key:'representative_name', label:'代表者名' },
+  { key:'applicant_name', label:'申込者名' },
+  { key:'receiver_number', label:'電話番号' },
+  { key:'user_name', label:'登録者' },
+  { key:'phone_datetime', label:'登録日' },
+];
+
+function formatHistoryValue(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  return String(value);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+async function loadHistoryStats() {
+  if (!ensureServerPage(false)) return;
+  try {
+    const data = await fetch('/api/history/stats').then(r => r.json());
+    document.getElementById('h-total').textContent = data.total.toLocaleString();
+    document.getElementById('h-range').textContent =
+      data.minDate && data.maxDate ? `${data.minDate}\n${data.maxDate}` : '—';
+    loadRepresentativeStats();
+  } catch (_) {}
+}
+
+async function loadRepresentativeStats() {
+  if (!ensureServerPage(false)) return;
+  try {
+    const data = await fetch('/api/representatives/stats').then(r => r.json());
+    document.getElementById('h-rep-stats').textContent =
+      `代表者 ${data.namedIds.toLocaleString()} / 確認済み ${data.checkedIds.toLocaleString()} / 残り ${data.remainingIds.toLocaleString()}`;
+  } catch (_) {}
+}
+
+async function loadHistoryChart() {
+  if (!ensureServerPage(false)) return;
+  try {
+    const data = await fetch('/api/history/chart').then(r => r.json());
+    renderHistoryChart(data.points || []);
+  } catch (_) {}
+}
+
+function renderHistoryChart(points) {
+  const canvas = document.getElementById('h-chart');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(Math.floor(rect.width * dpr), 1);
+  canvas.height = Math.max(Math.floor(rect.height * dpr), 1);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const width = rect.width;
+  const height = rect.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  const max = Math.max(...points.map(p => p.count), 1);
+  const pad = { top: 10, right: 10, bottom: 24, left: 34 };
+  const chartW = Math.max(width - pad.left - pad.right, 1);
+  const chartH = Math.max(height - pad.top - pad.bottom, 1);
+
+  ctx.strokeStyle = '#e5e7eb';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = pad.top + (chartH / 3) * i;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(width - pad.right, y);
+    ctx.stroke();
+  }
+
+  const barGap = 4;
+  const barW = Math.max((chartW / Math.max(points.length, 1)) - barGap, 3);
+  points.forEach((point, index) => {
+    const x = pad.left + index * (chartW / Math.max(points.length, 1)) + barGap / 2;
+    const h = (point.count / max) * chartH;
+    const y = pad.top + chartH - h;
+    ctx.fillStyle = '#60a5fa';
+    ctx.fillRect(x, y, barW, h);
+  });
+
+  ctx.fillStyle = '#6b7280';
+  ctx.font = '11px Inter, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(String(max), 4, pad.top + 8);
+  ctx.fillText('0', 14, pad.top + chartH);
+  if (points.length) {
+    ctx.textAlign = 'center';
+    ctx.fillText(points[0].date.slice(5), pad.left + 12, height - 6);
+    ctx.fillText(points[points.length - 1].date.slice(5), width - pad.right - 18, height - 6);
+  }
+}
+
+async function loadHistory(page = 1) {
+  if (!ensureServerPage(false)) return;
+  historyState.page = Math.max(page, 1);
+  const q = document.getElementById('h-search')?.value || '';
+  const params = new URLSearchParams({
+    page: historyState.page,
+    limit: historyState.limit,
+    q,
+  });
+  const data = await fetch('/api/history?' + params.toString()).then(r => r.json());
+  historyState.total = data.total;
+  historyState.columns = data.columns;
+
+  const head = document.getElementById('h-table-head');
+  const body = document.getElementById('h-table-body');
+  head.innerHTML = `<tr>${historyTableColumns.map(c => `<th class="px-2 py-2 text-left font-semibold whitespace-nowrap border-r border-gray-100 last:border-r-0">${c.key === 'select' ? '<input type="checkbox" class="h-4 w-4 rounded border-gray-300">' : c.label}</th>`).join('')}</tr>`;
+  body.innerHTML = data.rows.map(row => `
+    <tr class="hover:bg-sky-50">
+      ${historyTableColumns.map(c => renderHistoryCell(c.key, row)).join('')}
+    </tr>
+  `).join('');
+  if (!data.rows.length) {
+    body.innerHTML = `<tr><td colspan="${historyTableColumns.length}" class="px-4 py-10 text-center text-gray-400">データがありません</td></tr>`;
+  }
+
+  const start = data.total ? ((data.page - 1) * data.limit) + 1 : 0;
+  const end = Math.min(data.page * data.limit, data.total);
+  document.getElementById('h-page-info').textContent = `${start.toLocaleString()}〜${end.toLocaleString()} / ${data.total.toLocaleString()} 件`;
+  document.getElementById('h-page').textContent = `${data.page} / ${Math.max(Math.ceil(data.total / data.limit), 1)}`;
+  document.getElementById('h-prev').disabled = data.page <= 1;
+  document.getElementById('h-next').disabled = end >= data.total;
+}
+
+function renderHistoryCell(key, row) {
+  const base = 'px-2 py-1.5 whitespace-nowrap max-w-[260px] overflow-hidden text-ellipsis border-r border-gray-100 last:border-r-0';
+  if (key === 'select') {
+    return `<td class="${base} text-center"><input type="checkbox" class="h-4 w-4 rounded border-gray-300"></td>`;
+  }
+  if (key === 'call_datetime') {
+    const value = `${formatHistoryValue(row.call_start_date)} ${formatHistoryValue(row.call_start_time)}`.replace('— ', '').replace(' —', '');
+    return `<td class="${base} text-sky-600 font-medium" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+  }
+  if (key === 'phone_datetime') {
+    const value = `${formatHistoryValue(row.phone_start_date)} ${formatHistoryValue(row.phone_start_time)}`.replace('— ', '').replace(' —', '');
+    return `<td class="${base} text-gray-700" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+  }
+  if (key === 'customer_name') {
+    const value = formatHistoryValue(row.customer_name);
+    return `<td class="${base} text-sky-600 font-medium" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+  }
+  if (key === 'representative_name') {
+    const value = formatHistoryValue(row.representative_name);
+    return `<td class="${base} text-emerald-700 font-medium" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+  }
+  if (key === 'applicant_name') {
+    const value = formatHistoryValue(row.applicant_name);
+    return `<td class="${base} text-emerald-700" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+  }
+  const value = formatHistoryValue(row[key]);
+  return `<td class="${base} text-gray-700" title="${escapeHtml(value)}">${escapeHtml(value)}</td>`;
+}
+
+function changeHistoryPage(delta) {
+  const maxPage = Math.max(Math.ceil(historyState.total / historyState.limit), 1);
+  const next = Math.min(Math.max(historyState.page + delta, 1), maxPage);
+  if (next !== historyState.page) loadHistory(next);
+}
+
+function refreshHistoryView() {
+  loadHistoryStats();
+  loadHistoryChart();
+  loadHistory(historyState.page);
+}
+
+async function runHistorySync() {
+  const btn = document.getElementById('btn-history-sync');
+  if (!ensureServerPage()) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
+
+  const res = await fetch('/api/history/sync', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      loginId, password,
+      startDate: document.getElementById('h-startDate').value,
+      endDate:   document.getElementById('h-endDate').value,
+      inOutFlag: document.getElementById('h-inOutFlag').value,
+      incremental: true,
+    })
+  });
+  const { jobId, error } = await res.json();
+  if (error) { showToast(error); return; }
+  pollJob(jobId, 'h-log', btn, () => {
+    loadHistoryStats();
+    loadHistoryChart();
+    loadHistory(1);
+  });
+}
+
+async function runRepresentativeBackfill() {
+  const btn = document.getElementById('btn-representative-backfill');
+  if (!ensureServerPage()) return;
+  const cred = requireCred();
+  if (!cred) return;
+  const { loginId, password } = cred;
+
+  const res = await fetch('/api/representatives/backfill', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      loginId,
+      password,
+      workers: 8,
+    })
+  });
+  const { jobId, error } = await res.json();
+  if (error) { showToast(error); return; }
+  pollJob(jobId, 'h-log', btn, () => {
+    loadHistoryStats();
+    loadHistory(historyState.page);
+  }, () => {
+    loadRepresentativeStats();
+  });
+}
+
+const managedUserState = { users: [], loading: false };
+
+function resetManagedUserForm() {
+  document.getElementById('mu-row').value = '';
+  document.getElementById('mu-order').value = '';
+  document.getElementById('mu-name').value = '';
+  document.getElementById('mu-enabled').checked = true;
+  document.getElementById('mu-memo').value = '';
+  document.getElementById('mu-name').focus();
+}
+
+function editManagedUser(row) {
+  const user = managedUserState.users.find(u => Number(u.row) === Number(row));
+  if (!user) return;
+  document.getElementById('mu-row').value = user.row;
+  document.getElementById('mu-order').value = user.order || '';
+  document.getElementById('mu-name').value = user.name || '';
+  document.getElementById('mu-enabled').checked = !!user.enabled;
+  document.getElementById('mu-memo').value = user.memo || '';
+  document.getElementById('mu-name').focus();
+}
+
+function filteredManagedUsers() {
+  const q = (document.getElementById('mu-search')?.value || '').trim().toLowerCase();
+  const status = document.getElementById('mu-status-filter')?.value || '';
+  return managedUserState.users.filter(user => {
+    const matchesText = !q || `${user.name || ''} ${user.memo || ''}`.toLowerCase().includes(q);
+    const matchesStatus =
+      !status ||
+      (status === 'enabled' && user.enabled) ||
+      (status === 'disabled' && !user.enabled);
+    return matchesText && matchesStatus;
+  });
+}
+
+function renderManagedUsers() {
+  const body = document.getElementById('mu-table-body');
+  if (!body) return;
+  const users = filteredManagedUsers();
+  document.getElementById('mu-total').textContent = managedUserState.users.length.toLocaleString();
+  document.getElementById('mu-enabled-count').textContent =
+    managedUserState.users.filter(u => u.enabled).length.toLocaleString();
+
+  if (!users.length) {
+    body.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-gray-400">データがありません</td></tr>';
+    return;
+  }
+
+  body.innerHTML = users.map(user => `
+    <tr class="hover:bg-sky-50">
+      <td class="px-3 py-2 whitespace-nowrap text-gray-700">${escapeHtml(user.order || '')}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-sky-700 font-semibold">${escapeHtml(user.name || '')}</td>
+      <td class="px-3 py-2 whitespace-nowrap">
+        <button onclick="toggleManagedUser(${Number(user.row)}, ${user.enabled ? 'false' : 'true'})"
+                class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${user.enabled ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-gray-100 text-gray-500 border border-gray-200'}">
+          <span class="w-2 h-2 rounded-full ${user.enabled ? 'bg-emerald-500' : 'bg-gray-400'}"></span>
+          ${user.enabled ? '有効' : '無効'}
+        </button>
+      </td>
+      <td class="px-3 py-2 whitespace-nowrap text-gray-600">${escapeHtml(user.createdAt || '')}</td>
+      <td class="px-3 py-2 max-w-[320px] overflow-hidden text-ellipsis text-gray-600" title="${escapeHtml(user.memo || '')}">${escapeHtml(user.memo || '')}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-right">
+        <button onclick="editManagedUser(${Number(user.row)})"
+                class="text-xs font-semibold text-brand-700 bg-brand-50 border border-brand-200 rounded-md px-3 py-1.5 hover:bg-brand-100 transition-colors">編集</button>
+        <button onclick="deleteManagedUser(${Number(user.row)}, '${escapeHtml(user.name || '')}')"
+                class="ml-1 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-md px-3 py-1.5 hover:bg-rose-100 transition-colors">削除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function loadManagedUsers() {
+  if (!ensureServerPage()) return;
+  const btn = document.getElementById('btn-mu-reload');
+  if (managedUserState.loading) return;
+  managedUserState.loading = true;
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/user-management');
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'ユーザー一覧の取得に失敗しました');
+    managedUserState.users = data.users || [];
+    document.getElementById('mu-sheet-name').textContent = `${data.sheetName || '管理'} / ${managedUserState.users.length}件`;
+    renderManagedUsers();
+  } catch (e) {
+    showToast(e.message || 'ユーザー一覧の取得に失敗しました');
+  } finally {
+    managedUserState.loading = false;
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveManagedUser() {
+  if (!ensureServerPage()) return;
+  const btn = document.getElementById('btn-mu-save');
+  const payload = {
+    row: document.getElementById('mu-row').value || null,
+    order: document.getElementById('mu-order').value,
+    name: document.getElementById('mu-name').value,
+    enabled: document.getElementById('mu-enabled').checked,
+    memo: document.getElementById('mu-memo').value,
+  };
+  if (!payload.name.trim()) {
+    showToast('ユーザー名を入力してください');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/user-management', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '保存に失敗しました');
+    managedUserState.users = data.users || [];
+    renderManagedUsers();
+    resetManagedUserForm();
+    showToast('シートへ反映しました');
+  } catch (e) {
+    showToast(e.message || '保存に失敗しました');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function toggleManagedUser(row, enabled) {
+  if (!ensureServerPage()) return;
+  try {
+    const res = await fetch(`/api/user-management/${row}/status`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ enabled })
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '更新に失敗しました');
+    managedUserState.users = data.users || [];
+    renderManagedUsers();
+    showToast(enabled ? '有効にしました' : '無効にしました');
+  } catch (e) {
+    showToast(e.message || '更新に失敗しました');
+  }
+}
+
+async function deleteManagedUser(row, name) {
+  if (!ensureServerPage()) return;
+  if (!confirm(`${name} を削除しますか？`)) return;
+  try {
+    const res = await fetch(`/api/user-management/${row}`, { method:'DELETE' });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || '削除に失敗しました');
+    managedUserState.users = data.users || [];
+    renderManagedUsers();
+    resetManagedUserForm();
+    showToast('削除しました');
+  } catch (e) {
+    showToast(e.message || '削除に失敗しました');
+  }
 }
 
 // ─── 起動時に認証情報ロード ──────────────
