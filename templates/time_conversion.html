@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>時刻変換 | VOS Manager</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              200: '#c7d2fe',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    .file-drop-zone {
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+
+    .file-drop-zone.is-dragging {
+      border-color: #4f46e5;
+      background-color: #eef2ff;
+    }
+  </style>
+</head>
+
+<body class="min-h-full bg-gray-50 text-gray-900">
+  <div class="flex min-h-screen flex-col">
+    <!-- ページ上部 -->
+    <header class="border-b border-gray-200 bg-white px-6 py-4 shadow-sm">
+      <div class="mx-auto flex max-w-6xl items-center justify-between gap-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-brand-600">
+            VOS Manager
+          </p>
+          <h1 class="mt-1 text-lg font-bold">時刻変換</h1>
+        </div>
+
+        <a
+          href="{{ url_for('index') }}"
+          class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-brand-700"
+        >
+          メイン画面へ戻る
+        </a>
+      </div>
+    </header>
+
+    <!-- ファイル選択画面 -->
+    <main class="flex flex-1 items-center justify-center px-4 py-12">
+      <section class="w-full max-w-xl rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-10">
+        <div class="mb-6 text-center">
+          <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+            <svg
+              class="h-7 w-7"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 16V4m0 0L7 9m5-5 5 5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"
+              />
+            </svg>
+          </div>
+
+          <h2 class="mt-4 text-xl font-bold text-gray-900">
+            顧客CSVから通話時間帯を検索
+          </h2>
+          <p class="mt-2 text-sm leading-6 text-gray-500">
+            顧客データの電話番号を過去の通話履歴と照合し、通話があった時間帯と曜日を○×でまとめます。
+          </p>
+        </div>
+
+        <form id="upload-form" class="space-y-5">
+          <!-- クリックまたはドラッグ＆ドロップでCSVを選択 -->
+          <label
+            id="file-drop-zone"
+            for="file-input"
+            class="file-drop-zone flex min-h-52 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-5 py-8 text-center hover:border-brand-400 hover:bg-brand-50/50"
+          >
+            <svg
+              class="h-9 w-9 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M12 16V4m0 0L7 9m5-5 5 5M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"
+              />
+            </svg>
+            <span class="mt-4 text-sm font-semibold text-gray-700">
+              クリックしてCSVファイルを選択
+            </span>
+            <span class="mt-1 text-xs text-gray-400">
+              「tel番号」列があるCSVを指定してください
+            </span>
+            <input id="file-input" name="file" type="file" accept=".csv,text/csv" class="sr-only" required>
+          </label>
+
+          <!-- チェックすると、代表名が空欄の行は検索対象から除外 -->
+          <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
+            <input
+              id="representative-only"
+              name="representativeOnly"
+              type="checkbox"
+              value="true"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            >
+            <span>
+              <span class="block font-medium">代表名が入力されている行だけ検索する</span>
+              <span class="mt-1 block text-xs text-gray-500">「代表名」列が空欄の行を除外します。</span>
+            </span>
+          </label>
+
+          <!-- 選んだファイルの名前とサイズ -->
+        <p
+          id="selected-file"
+          class="hidden break-all rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700"
+          aria-live="polite"
+        ></p>
+
+          <button
+            id="convert-button"
+            type="submit"
+            disabled
+            class="w-full rounded-lg bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            電話番号を検索してCSVをダウンロード
+          </button>
+        </form>
+
+        <p
+          id="status-message"
+          class="mt-4 hidden rounded-lg px-4 py-3 text-sm"
+          role="status"
+          aria-live="polite"
+        ></p>
+
+        <p class="mt-5 text-center text-xs leading-5 text-gray-400">
+          過去の通話履歴は「30秒省き.csv」を使用します。通話履歴が見つかった電話番号のみ結果に出力します。
+        </p>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // 画面で使う要素をまとめて取得します。
+    const uploadForm = document.getElementById('upload-form');
+    const fileInput = document.getElementById('file-input');
+    const fileDropZone = document.getElementById('file-drop-zone');
+    const selectedFileMessage = document.getElementById('selected-file');
+    const convertButton = document.getElementById('convert-button');
+    const statusMessage = document.getElementById('status-message');
+
+    // 選択したファイル名を表示し、検索ボタンを有効にします。
+    function showSelectedFile(file) {
+      if (!file) {
+        selectedFileMessage.textContent = '';
+        selectedFileMessage.classList.add('hidden');
+        convertButton.disabled = true;
+        return;
+      }
+
+      const sizeInKilobytes = (file.size / 1024).toFixed(1);
+      selectedFileMessage.textContent =
+        `選択中: ${file.name} (${sizeInKilobytes} KB)`;
+      selectedFileMessage.classList.remove('hidden');
+      convertButton.disabled = false;
+      statusMessage.classList.add('hidden');
+    }
+
+    // ファイル選択ダイアログで選んだファイルを表示します。
+    fileInput.addEventListener('change', () => {
+      showSelectedFile(fileInput.files[0]);
+    });
+
+    // ドラッグ中はドロップ領域の見た目を変えます。
+    fileDropZone.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      fileDropZone.classList.add('is-dragging');
+    });
+
+    fileDropZone.addEventListener('dragleave', () => {
+      fileDropZone.classList.remove('is-dragging');
+    });
+
+    // ドロップされたCSVを選択済みにします。
+    fileDropZone.addEventListener('drop', (event) => {
+      event.preventDefault();
+      fileDropZone.classList.remove('is-dragging');
+
+      const file = event.dataTransfer.files[0];
+      if (!file) {
+        return;
+      }
+
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      fileInput.files = transfer.files;
+      showSelectedFile(file);
+    });
+
+    // CSVをサーバーで検索し、結果をダウンロードします。
+    uploadForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!fileInput.files.length) {
+        return;
+      }
+
+      convertButton.disabled = true;
+      convertButton.textContent = '検索中...';
+      statusMessage.classList.add('hidden');
+
+      try {
+        const response = await fetch('/api/time-conversion', {
+          method: 'POST',
+          body: new FormData(uploadForm)
+        });
+
+        if (!response.ok) {
+          const responseText = await response.text();
+          let errorMessage = '';
+          try {
+            errorMessage = JSON.parse(responseText).error || '';
+          } catch {
+            errorMessage =
+              `サーバーがエラーを返しました (HTTP ${response.status})。` +
+              'アプリを再起動してから、もう一度お試しください。';
+          }
+          throw new Error(errorMessage || 'CSVの検索に失敗しました。');
+        }
+
+        if (!response.headers.get('content-type')?.includes('text/csv')) {
+          throw new Error(
+            'CSV以外の応答が返りました。アプリを再起動してから、もう一度お試しください。'
+          );
+        }
+
+        const resultFile = await response.blob();
+        const downloadUrl = URL.createObjectURL(resultFile);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = downloadUrl;
+        downloadLink.download = '電話番号検索結果.csv';
+        downloadLink.click();
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+
+        const processed = response.headers.get('X-Processed-Phones');
+        const matched = response.headers.get('X-Matched-Phones');
+        statusMessage.textContent =
+          `検索完了: 対象 ${processed} 件中 ${matched} 件に通話履歴がありました。結果CSVをダウンロードしました。`;
+        statusMessage.className =
+          'mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700';
+      } catch (error) {
+        statusMessage.textContent = error.message || 'CSVの検索に失敗しました。';
+        statusMessage.className =
+          'mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700';
+      } finally {
+        convertButton.disabled = !fileInput.files.length;
+        convertButton.textContent = '電話番号を検索してCSVをダウンロード';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+*.csv -filter -diff -merge -text
+*.csv.gz -filter -diff -merge -text

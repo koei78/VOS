@@ -13,8 +13,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date, timedelta
 from flask import Flask, render_template, request, jsonify, send_file
 import io
+import requests
+
 
 from carrier_lookup import FixedLineCarrierLookup
+from phone_history_converter import ConversionError, convert_customer_csv
 from vos import VOSClient
 
 
@@ -739,6 +742,53 @@ def _sheet_range(a1_range):
     safe_name = USER_SHEET_NAME.replace("'", "''")
     return f"'{safe_name}'!{a1_range}"
 
+GAS_URL = "https://script.google.com/macros/s/AKfycbwQnloM9iTOAc-0JGRWZPrNVAswlG49SCTb6a4qphQ6DxcW6MN2HPaaaG_egrlJU1U6/exec"
+
+GAS_TOKEN = "適当な長い秘密文字列"
+
+
+def refresh_monthly_summary():
+    print("==== GAS更新開始 ====")
+
+    try:
+        response = requests.post(
+            GAS_URL,
+            json={
+                "token": GAS_TOKEN
+            },
+            timeout=60
+        )
+
+        print("GAS URL:", GAS_URL)
+        print("GAS status:", response.status_code)
+        print("GAS response:", response.text)
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"GAS HTTPエラー: {response.status_code}"
+            )
+
+        try:
+            result = response.json()
+        except Exception:
+            raise RuntimeError(
+                f"GASからJSON以外が返りました: {response.text[:500]}"
+            )
+
+        if result.get("ok") is not True:
+            raise RuntimeError(
+                f"GAS実行失敗: {result}"
+            )
+
+        print("✅ GAS月別集計更新成功")
+        print("======================")
+
+        return result
+
+    except Exception as e:
+        print("❌ GAS更新エラー:", e)
+        print("======================")
+        raise
 
 def get_sheets_service():
     global _sheets_service
@@ -747,7 +797,7 @@ def get_sheets_service():
 
     credentials_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
     credentials_json_base64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_BASE64", "").strip()
-    credentials_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+    credentials_file = "applied-pipe-472412-s2-096095f5e96b.json"
     if not credentials_json and credentials_json_base64:
         credentials_json = base64.b64decode(credentials_json_base64).decode("utf-8")
     if not credentials_json and not credentials_file:
@@ -816,6 +866,7 @@ def _normalize_sheet_row(row, index):
         "createdAt": str(created_at or "").strip(),
         "memo": str(memo or "").strip(),
     }
+    refresh_monthly_summary()
 
 
 def read_managed_users(include_blanks=False):
@@ -856,6 +907,7 @@ def update_user_sheet_row(row, values):
         valueInputOption="USER_ENTERED",
         body={"values": [values]},
     ).execute()
+    refresh_monthly_summary()
 
 
 def clear_user_sheet_row(row):
@@ -866,6 +918,7 @@ def clear_user_sheet_row(row):
         range=_sheet_range(f"A{row}:E{row}"),
         body={},
     ).execute()
+    refresh_monthly_summary()
 
 
 # ─────────────────────────────────────────────
@@ -874,6 +927,45 @@ def clear_user_sheet_row(row):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/time-conversion")
+def time_conversion():
+    return render_template("time_conversion.html")
+
+
+@app.route("/api/time-conversion", methods=["POST"])
+def api_time_conversion():
+    uploaded_file = request.files.get("file")
+    if uploaded_file is None or not uploaded_file.filename:
+        return jsonify({"error": "顧客CSVファイルを選択してください。"}), 400
+
+    include_representative_only = request.form.get("representativeOnly") == "true"
+    base_dir = os.path.dirname(__file__)
+    compressed_history_path = os.path.join(base_dir, "30秒省き.csv.gz")
+    history_path = (
+        compressed_history_path
+        if os.path.exists(compressed_history_path)
+        else os.path.join(base_dir, "30秒省き.csv")
+    )
+    try:
+        csv_data, summary = convert_customer_csv(
+            uploaded_file.read(),
+            history_path,
+            include_representative_only=include_representative_only,
+        )
+    except ConversionError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    response = send_file(
+        io.BytesIO(csv_data),
+        mimetype="text/csv; charset=utf-8",
+        as_attachment=True,
+        download_name="電話番号検索結果.csv",
+    )
+    response.headers["X-Processed-Phones"] = str(summary["processed"])
+    response.headers["X-Matched-Phones"] = str(summary["matched"])
+    return response
 
 
 @app.route("/api/users", methods=["POST"])
@@ -957,6 +1049,7 @@ def api_user_management_status(row):
                 current.get("memo", ""),
             ],
         )
+        refresh_monthly_summary()
         return jsonify({"ok": True, "users": read_managed_users()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -969,6 +1062,7 @@ def api_user_management_delete(row):
         if not any(u["row"] == row for u in users):
             return jsonify({"error": "対象ユーザーが見つかりません"}), 404
         clear_user_sheet_row(row)
+        refresh_monthly_summary()
         return jsonify({"ok": True, "users": read_managed_users()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

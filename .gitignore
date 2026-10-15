@@ -7,9 +7,11 @@ __pycache__/
 .venv/
 venv/
 .cache/
+.testtmp/
 .python-version
 call_log.csv
 cleaned_split.csv
+30秒省き.csv
 call_history.sqlite3
 *.sqlite3-journal
 download_outputs/
@@ -18,3 +20,5 @@ flask_*.err.log
 response.html
 debug_search.html
 debug_*.html
+applied-pipe-472412-s2-096095f5e96b.json
+通話履歴見込み入れ/
