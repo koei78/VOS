@@ -66,6 +66,12 @@ def normalize_phone(value: str) -> str:
     return _clean_phone(value).lstrip("0")
 
 
+def spreadsheet_phone(value: str) -> str:
+    """Keep a phone number as text when the CSV is imported into a spreadsheet."""
+    phone = _clean_phone(value)
+    return f'=\"{phone}\"' if phone else ""
+
+
 def _find_column(headers: list[str], names: set[str]) -> int | None:
     normalized_names = {_normalized_header(name) for name in names}
     for index, header in enumerate(headers):
@@ -170,7 +176,7 @@ def _build_output_rows(
         padded_latest = latest + [""] * max(0, 18 - len(latest))
         output_rows.append(
             [
-                original_phone,
+                spreadsheet_phone(original_phone),
                 padded_latest[14].strip(),
                 padded_latest[13].strip(),
                 padded_latest[11].strip(),

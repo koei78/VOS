@@ -44,7 +44,7 @@ class PhoneHistoryConverterTests(unittest.TestCase):
         rows = list(csv.reader(io.StringIO(result.decode("utf-8-sig"))))
 
         self.assertEqual(summary, {"processed": 2, "matched": 1})
-        self.assertEqual(rows[1][0], "0358493767")
+        self.assertEqual(rows[1][0], '=\"0358493767\"')
         self.assertEqual(rows[1][1], "最新店舗")
         self.assertEqual(rows[1][6], "2")
         self.assertEqual(rows[1][7], "○")
