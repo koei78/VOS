@@ -2,6 +2,7 @@ import threading
 import uuid
 import json
 import os
+import re
 import urllib.parse
 import csv
 import sqlite3
@@ -30,6 +31,8 @@ USER_SHEET_ID = os.getenv("USER_SHEET_ID", "1sMrQ5FgLbo_AQxXnhLTZIEY36vu6_bSgq9R
 USER_SHEET_NAME = os.getenv("USER_SHEET_NAME", "管理")
 USER_SHEET_MAX_ROWS = int(os.getenv("USER_SHEET_MAX_ROWS", "1000"))
 USER_SHEET_HEADERS = ["表示順", "ユーザー名", "有効", "登録日時", "メモ"]
+MONTHLY_SUMMARY_SHEET_NAME = os.getenv("MONTHLY_SUMMARY_SHEET_NAME", "月別集計")
+MONTHLY_SUMMARY_GUARD_USERS = ("鈴木", "杉本")
 
 CALL_HISTORY_COLUMNS = [
     "log_id",
@@ -747,6 +750,71 @@ GAS_URL = "https://script.google.com/macros/s/AKfycbwQnloM9iTOAc-0JGRWZPrNVAswlG
 GAS_TOKEN = "適当な長い秘密文字列"
 
 
+def future_monthly_summary_rows(rows, today=None):
+    """Return future-month row numbers for guarded user summary blocks."""
+    today = today or date.today()
+    current_month = date(today.year, today.month, 1)
+    future_rows = []
+
+    for header_index, row in enumerate(rows):
+        user_name = str(row[0] if row else "").strip()
+        if user_name not in MONTHLY_SUMMARY_GUARD_USERS:
+            continue
+
+        month_rows = []
+        for row_index in range(header_index + 1, min(header_index + 13, len(rows))):
+            label = str(rows[row_index][0] if rows[row_index] else "").strip()
+            match = re.fullmatch(r"(1[0-2]|[1-9])月", label)
+            if not match:
+                if month_rows:
+                    break
+                continue
+            month_rows.append((row_index + 1, int(match.group(1))))
+
+        if not month_rows:
+            continue
+
+        year = today.year if month_rows[0][1] <= today.month else today.year - 1
+        previous_month = month_rows[0][1]
+        for sheet_row, month in month_rows:
+            if month < previous_month:
+                year += 1
+            if date(year, month, 1) > current_month:
+                future_rows.append(sheet_row)
+            previous_month = month
+
+    return future_rows
+
+
+def reset_future_monthly_summary(today=None):
+    values_api = user_sheet_values_api()
+    safe_name = MONTHLY_SUMMARY_SHEET_NAME.replace("'", "''")
+    result = values_api.get(
+        spreadsheetId=USER_SHEET_ID,
+        range=f"'{safe_name}'!A1:A970",
+        valueRenderOption="FORMATTED_VALUE",
+    ).execute()
+    rows = result.get("values") or []
+    future_rows = future_monthly_summary_rows(rows, today=today)
+    if not future_rows:
+        return []
+
+    values_api.batchUpdate(
+        spreadsheetId=USER_SHEET_ID,
+        body={
+            "valueInputOption": "RAW",
+            "data": [
+                {
+                    "range": f"'{safe_name}'!B{row}:N{row}",
+                    "values": [[0] * 13],
+                }
+                for row in future_rows
+            ],
+        },
+    ).execute()
+    return future_rows
+
+
 def refresh_monthly_summary():
     print("==== GAS更新開始 ====")
 
@@ -779,6 +847,9 @@ def refresh_monthly_summary():
             raise RuntimeError(
                 f"GAS実行失敗: {result}"
             )
+
+        reset_rows = reset_future_monthly_summary()
+        result["futureMonthRowsReset"] = reset_rows
 
         print("✅ GAS月別集計更新成功")
         print("======================")
