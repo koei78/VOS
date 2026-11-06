@@ -33,6 +33,24 @@ USER_SHEET_MAX_ROWS = int(os.getenv("USER_SHEET_MAX_ROWS", "1000"))
 USER_SHEET_HEADERS = ["表示順", "ユーザー名", "有効", "登録日時", "メモ"]
 MONTHLY_SUMMARY_SHEET_NAME = os.getenv("MONTHLY_SUMMARY_SHEET_NAME", "月別集計")
 MONTHLY_SUMMARY_GUARD_USERS = ("鈴木", "杉本")
+DEFAULT_USER_WORKBOOK_KEY = "kitagawa"
+USER_WORKBOOKS = {
+    "kitagawa": {
+        "key": "kitagawa",
+        "label": "北川班",
+        "spreadsheetId": USER_SHEET_ID,
+        "sheetName": USER_SHEET_NAME,
+    },
+    "mori": {
+        "key": "mori",
+        "label": "森班",
+        "spreadsheetId": os.getenv(
+            "MORI_USER_SHEET_ID",
+            "1ma-L8ty0lbMA2p3GcKcxHfE1VBz1S4-C6iu4HfiM1c8",
+        ),
+        "sheetName": USER_SHEET_NAME,
+    },
+}
 
 CALL_HISTORY_COLUMNS = [
     "log_id",
@@ -741,8 +759,16 @@ def month_ranges(start: date, end: date):
         current = chunk_end + timedelta(days=1)
 
 
-def _sheet_range(a1_range):
-    safe_name = USER_SHEET_NAME.replace("'", "''")
+def get_user_workbook(workbook_key=None):
+    key = str(workbook_key or DEFAULT_USER_WORKBOOK_KEY).strip().casefold()
+    workbook = USER_WORKBOOKS.get(key)
+    if workbook is None:
+        raise ValueError("対象班が不正です")
+    return workbook
+
+
+def _sheet_range(a1_range, sheet_name=USER_SHEET_NAME):
+    safe_name = sheet_name.replace("'", "''")
     return f"'{safe_name}'!{a1_range}"
 
 GAS_URL = "https://script.google.com/macros/s/AKfycbwQnloM9iTOAc-0JGRWZPrNVAswlG49SCTb6a4qphQ6DxcW6MN2HPaaaG_egrlJU1U6/exec"
@@ -786,11 +812,11 @@ def future_monthly_summary_rows(rows, today=None):
     return future_rows
 
 
-def reset_future_monthly_summary(today=None):
+def reset_future_monthly_summary(spreadsheet_id=USER_SHEET_ID, today=None):
     values_api = user_sheet_values_api()
     safe_name = MONTHLY_SUMMARY_SHEET_NAME.replace("'", "''")
     result = values_api.get(
-        spreadsheetId=USER_SHEET_ID,
+        spreadsheetId=spreadsheet_id,
         range=f"'{safe_name}'!A1:A970",
         valueRenderOption="FORMATTED_VALUE",
     ).execute()
@@ -800,7 +826,7 @@ def reset_future_monthly_summary(today=None):
         return []
 
     values_api.batchUpdate(
-        spreadsheetId=USER_SHEET_ID,
+        spreadsheetId=spreadsheet_id,
         body={
             "valueInputOption": "RAW",
             "data": [
@@ -815,14 +841,27 @@ def reset_future_monthly_summary(today=None):
     return future_rows
 
 
-def refresh_monthly_summary():
+def refresh_monthly_summary(workbook_key=DEFAULT_USER_WORKBOOK_KEY):
     print("==== GAS更新開始 ====")
 
     try:
+        workbook = get_user_workbook(workbook_key)
+        if workbook["key"] != DEFAULT_USER_WORKBOOK_KEY:
+            reset_rows = reset_future_monthly_summary(workbook["spreadsheetId"])
+            print(f"{workbook['label']}は管理タブのみ更新（北川班専用GASは実行しません）")
+            print("======================")
+            return {
+                "ok": True,
+                "monthlySummarySkipped": True,
+                "futureMonthRowsReset": reset_rows,
+            }
+
         response = requests.post(
             GAS_URL,
             json={
-                "token": GAS_TOKEN
+                "token": GAS_TOKEN,
+                "spreadsheetId": workbook["spreadsheetId"],
+                "workbookKey": workbook["key"],
             },
             timeout=60
         )
@@ -848,16 +887,16 @@ def refresh_monthly_summary():
                 f"GAS実行失敗: {result}"
             )
 
-        reset_rows = reset_future_monthly_summary()
+        reset_rows = reset_future_monthly_summary(workbook["spreadsheetId"])
         result["futureMonthRowsReset"] = reset_rows
 
-        print("✅ GAS月別集計更新成功")
+        print("GAS月別集計更新成功")
         print("======================")
 
         return result
 
     except Exception as e:
-        print("❌ GAS更新エラー:", e)
+        print("GAS更新エラー:", e)
         print("======================")
         raise
 
@@ -901,18 +940,19 @@ def user_sheet_values_api():
     return get_sheets_service().spreadsheets().values()
 
 
-def ensure_user_sheet_headers():
+def ensure_user_sheet_headers(workbook_key=DEFAULT_USER_WORKBOOK_KEY):
+    workbook = get_user_workbook(workbook_key)
     values_api = user_sheet_values_api()
     result = values_api.get(
-        spreadsheetId=USER_SHEET_ID,
-        range=_sheet_range("A1:E1"),
+        spreadsheetId=workbook["spreadsheetId"],
+        range=_sheet_range("A1:E1", workbook["sheetName"]),
         valueRenderOption="FORMATTED_VALUE",
     ).execute()
     headers = (result.get("values") or [[]])[0]
     if headers[: len(USER_SHEET_HEADERS)] != USER_SHEET_HEADERS:
         values_api.update(
-            spreadsheetId=USER_SHEET_ID,
-            range=_sheet_range("A1:E1"),
+            spreadsheetId=workbook["spreadsheetId"],
+            range=_sheet_range("A1:E1", workbook["sheetName"]),
             valueInputOption="USER_ENTERED",
             body={"values": [USER_SHEET_HEADERS]},
         ).execute()
@@ -937,14 +977,14 @@ def _normalize_sheet_row(row, index):
         "createdAt": str(created_at or "").strip(),
         "memo": str(memo or "").strip(),
     }
-    refresh_monthly_summary()
 
 
-def read_managed_users(include_blanks=False):
-    ensure_user_sheet_headers()
+def read_managed_users(workbook_key=DEFAULT_USER_WORKBOOK_KEY, include_blanks=False):
+    workbook = get_user_workbook(workbook_key)
+    ensure_user_sheet_headers(workbook_key)
     result = user_sheet_values_api().get(
-        spreadsheetId=USER_SHEET_ID,
-        range=_sheet_range(f"A2:E{USER_SHEET_MAX_ROWS}"),
+        spreadsheetId=workbook["spreadsheetId"],
+        range=_sheet_range(f"A2:E{USER_SHEET_MAX_ROWS}", workbook["sheetName"]),
         valueRenderOption="FORMATTED_VALUE",
     ).execute()
     raw_rows = result.get("values") or []
@@ -969,27 +1009,29 @@ def next_user_order(users):
     return str((max(nums) if nums else 0) + 1)
 
 
-def update_user_sheet_row(row, values):
+def update_user_sheet_row(workbook_key, row, values):
+    workbook = get_user_workbook(workbook_key)
     if row < 2 or row > USER_SHEET_MAX_ROWS:
         raise ValueError("更新対象の行が不正です")
     user_sheet_values_api().update(
-        spreadsheetId=USER_SHEET_ID,
-        range=_sheet_range(f"A{row}:E{row}"),
+        spreadsheetId=workbook["spreadsheetId"],
+        range=_sheet_range(f"A{row}:E{row}", workbook["sheetName"]),
         valueInputOption="USER_ENTERED",
         body={"values": [values]},
     ).execute()
-    refresh_monthly_summary()
+    refresh_monthly_summary(workbook_key)
 
 
-def clear_user_sheet_row(row):
+def clear_user_sheet_row(workbook_key, row):
+    workbook = get_user_workbook(workbook_key)
     if row < 2 or row > USER_SHEET_MAX_ROWS:
         raise ValueError("削除対象の行が不正です")
     user_sheet_values_api().clear(
-        spreadsheetId=USER_SHEET_ID,
-        range=_sheet_range(f"A{row}:E{row}"),
+        spreadsheetId=workbook["spreadsheetId"],
+        range=_sheet_range(f"A{row}:E{row}", workbook["sheetName"]),
         body={},
     ).execute()
-    refresh_monthly_summary()
+    refresh_monthly_summary(workbook_key)
 
 
 # ─────────────────────────────────────────────
@@ -1057,12 +1099,23 @@ def api_users():
 @app.route("/api/user-management", methods=["GET"])
 def api_user_management_list():
     try:
-        users = read_managed_users()
+        workbook_key = request.args.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
+        workbook = get_user_workbook(workbook_key)
+        users = read_managed_users(workbook["key"])
         return jsonify({
             "users": users,
-            "sheetId": USER_SHEET_ID,
-            "sheetName": USER_SHEET_NAME,
+            "workbook": workbook["key"],
+            "workbookLabel": workbook["label"],
+            "workbooks": [
+                {"key": item["key"], "label": item["label"]}
+                for item in USER_WORKBOOKS.values()
+            ],
+            "sheetId": workbook["spreadsheetId"],
+            "sheetName": workbook["sheetName"],
+            "sheetUrl": f"https://docs.google.com/spreadsheets/d/{workbook['spreadsheetId']}/edit",
         })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1070,6 +1123,7 @@ def api_user_management_list():
 @app.route("/api/user-management", methods=["POST"])
 def api_user_management_save():
     data = request.json or {}
+    workbook_key = data.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
     name = str(data.get("name") or "").strip()
     if not name:
         return jsonify({"error": "ユーザー名を入力してください"}), 400
@@ -1079,7 +1133,8 @@ def api_user_management_save():
     row = data.get("row")
 
     try:
-        users, blank_rows = read_managed_users(include_blanks=True)
+        workbook = get_user_workbook(workbook_key)
+        users, blank_rows = read_managed_users(workbook["key"], include_blanks=True)
         row = int(row) if row else None
         duplicate = next((u for u in users if u["name"] == name and u["row"] != row), None)
         if duplicate:
@@ -1094,9 +1149,15 @@ def api_user_management_save():
             order = str(data.get("order") or next_user_order(users)).strip()
             created_at = str(data.get("createdAt") or date.today().isoformat()).strip()
 
-        update_user_sheet_row(row, [order, name, "TRUE" if enabled else "FALSE", created_at, memo])
-        users = read_managed_users()
-        return jsonify({"ok": True, "row": row, "users": users})
+        update_user_sheet_row(
+            workbook["key"],
+            row,
+            [order, name, "TRUE" if enabled else "FALSE", created_at, memo],
+        )
+        users = read_managed_users(workbook["key"])
+        return jsonify({"ok": True, "row": row, "users": users, "workbook": workbook["key"]})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1104,13 +1165,16 @@ def api_user_management_save():
 @app.route("/api/user-management/<int:row>/status", methods=["PATCH"])
 def api_user_management_status(row):
     data = request.json or {}
+    workbook_key = data.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
     enabled = data.get("enabled") is True
     try:
-        users = read_managed_users()
+        workbook = get_user_workbook(workbook_key)
+        users = read_managed_users(workbook["key"])
         current = next((u for u in users if u["row"] == row), None)
         if not current:
             return jsonify({"error": "対象ユーザーが見つかりません"}), 404
         update_user_sheet_row(
+            workbook["key"],
             row,
             [
                 current.get("order", ""),
@@ -1120,8 +1184,13 @@ def api_user_management_status(row):
                 current.get("memo", ""),
             ],
         )
-        refresh_monthly_summary()
-        return jsonify({"ok": True, "users": read_managed_users()})
+        return jsonify({
+            "ok": True,
+            "users": read_managed_users(workbook["key"]),
+            "workbook": workbook["key"],
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1129,12 +1198,19 @@ def api_user_management_status(row):
 @app.route("/api/user-management/<int:row>", methods=["DELETE"])
 def api_user_management_delete(row):
     try:
-        users = read_managed_users()
+        workbook_key = request.args.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
+        workbook = get_user_workbook(workbook_key)
+        users = read_managed_users(workbook["key"])
         if not any(u["row"] == row for u in users):
             return jsonify({"error": "対象ユーザーが見つかりません"}), 404
-        clear_user_sheet_row(row)
-        refresh_monthly_summary()
-        return jsonify({"ok": True, "users": read_managed_users()})
+        clear_user_sheet_row(workbook["key"], row)
+        return jsonify({
+            "ok": True,
+            "users": read_managed_users(workbook["key"]),
+            "workbook": workbook["key"],
+        })
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
