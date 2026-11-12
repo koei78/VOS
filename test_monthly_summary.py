@@ -67,6 +67,26 @@ class UserWorkbookTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_user_management_save_requires_explicit_workbook(self):
+        response = app_module.app.test_client().post(
+            "/api/user-management",
+            json={"name": "班未指定"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("対象班", response.get_json()["error"])
+
+    def test_workbook_configuration_rejects_shared_spreadsheet_id(self):
+        original = app_module.USER_WORKBOOKS["mori"]["spreadsheetId"]
+        try:
+            app_module.USER_WORKBOOKS["mori"]["spreadsheetId"] = (
+                app_module.USER_WORKBOOKS["kitagawa"]["spreadsheetId"]
+            )
+            with self.assertRaisesRegex(RuntimeError, "同じスプレッドシートID"):
+                get_user_workbook("mori")
+        finally:
+            app_module.USER_WORKBOOKS["mori"]["spreadsheetId"] = original
+
     def test_user_management_save_writes_to_selected_workbook(self):
         saved_users = [
             {

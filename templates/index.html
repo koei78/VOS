@@ -1396,6 +1396,7 @@ const MANAGED_WORKBOOK_STORAGE_KEY = 'vos_managed_workbook';
 const managedUserState = {
   users: [],
   loading: false,
+  loadSequence: 0,
   workbook: localStorage.getItem(MANAGED_WORKBOOK_STORAGE_KEY) || 'kitagawa',
 };
 
@@ -1405,6 +1406,9 @@ function changeManagedWorkbook() {
   localStorage.setItem(MANAGED_WORKBOOK_STORAGE_KEY, managedUserState.workbook);
   managedUserState.users = [];
   resetManagedUserForm();
+  document.getElementById('mu-sheet-name').textContent = '読み込み中...';
+  const openSheet = document.getElementById('mu-open-sheet');
+  if (openSheet) openSheet.href = '#';
   renderManagedUsers();
   loadManagedUsers();
 }
@@ -1481,41 +1485,61 @@ function renderManagedUsers() {
 async function loadManagedUsers() {
   if (!ensureServerPage()) return;
   const btn = document.getElementById('btn-mu-reload');
-  if (managedUserState.loading) return;
+  const requestedWorkbook = managedUserState.workbook;
+  const requestSequence = ++managedUserState.loadSequence;
   managedUserState.loading = true;
   if (btn) btn.disabled = true;
   try {
-    const res = await fetch(`/api/user-management?workbook=${encodeURIComponent(managedUserState.workbook)}`);
+    const res = await fetch(`/api/user-management?workbook=${encodeURIComponent(requestedWorkbook)}`);
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || 'ユーザー一覧の取得に失敗しました');
-    managedUserState.workbook = data.workbook || managedUserState.workbook;
+    if (requestSequence !== managedUserState.loadSequence || managedUserState.workbook !== requestedWorkbook) return;
+    if (data.workbook !== requestedWorkbook) throw new Error('別の班のデータが返されたため表示を中止しました');
     managedUserState.users = data.users || [];
     const workbookSelect = document.getElementById('mu-workbook');
     if (Array.isArray(data.workbooks) && workbookSelect) {
       workbookSelect.innerHTML = data.workbooks.map(item =>
         `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`
       ).join('');
-      workbookSelect.value = managedUserState.workbook;
+      workbookSelect.value = requestedWorkbook;
     }
-    localStorage.setItem(MANAGED_WORKBOOK_STORAGE_KEY, managedUserState.workbook);
+    localStorage.setItem(MANAGED_WORKBOOK_STORAGE_KEY, requestedWorkbook);
     document.getElementById('mu-sheet-name').textContent =
       `${data.workbookLabel || ''} / ${data.sheetName || '管理'} / ${managedUserState.users.length}件`;
     const openSheet = document.getElementById('mu-open-sheet');
     if (openSheet) openSheet.href = data.sheetUrl || '#';
     renderManagedUsers();
   } catch (e) {
-    showToast(e.message || 'ユーザー一覧の取得に失敗しました');
+    if (requestSequence === managedUserState.loadSequence) {
+      showToast(e.message || 'ユーザー一覧の取得に失敗しました');
+    }
   } finally {
-    managedUserState.loading = false;
-    if (btn) btn.disabled = false;
+    if (requestSequence === managedUserState.loadSequence) {
+      managedUserState.loading = false;
+      if (btn) btn.disabled = false;
+    }
   }
+}
+
+function applyManagedUserMutation(data, requestedWorkbook) {
+  if (data.workbook !== requestedWorkbook) {
+    throw new Error('別の班への更新応答を検出したため表示を中止しました');
+  }
+  if (managedUserState.workbook !== requestedWorkbook) {
+    loadManagedUsers();
+    return false;
+  }
+  managedUserState.users = data.users || [];
+  renderManagedUsers();
+  return true;
 }
 
 async function saveManagedUser() {
   if (!ensureServerPage()) return;
   const btn = document.getElementById('btn-mu-save');
+  const requestedWorkbook = managedUserState.workbook;
   const payload = {
-    workbook: managedUserState.workbook,
+    workbook: requestedWorkbook,
     row: document.getElementById('mu-row').value || null,
     order: document.getElementById('mu-order').value,
     name: document.getElementById('mu-name').value,
@@ -1535,9 +1559,7 @@ async function saveManagedUser() {
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || '保存に失敗しました');
-    managedUserState.users = data.users || [];
-    renderManagedUsers();
-    resetManagedUserForm();
+    if (applyManagedUserMutation(data, requestedWorkbook)) resetManagedUserForm();
     showToast('シートへ反映しました');
   } catch (e) {
     showToast(e.message || '保存に失敗しました');
@@ -1548,16 +1570,16 @@ async function saveManagedUser() {
 
 async function toggleManagedUser(row, enabled) {
   if (!ensureServerPage()) return;
+  const requestedWorkbook = managedUserState.workbook;
   try {
     const res = await fetch(`/api/user-management/${row}/status`, {
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ enabled, workbook: managedUserState.workbook })
+      body: JSON.stringify({ enabled, workbook: requestedWorkbook })
     });
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || '更新に失敗しました');
-    managedUserState.users = data.users || [];
-    renderManagedUsers();
+    applyManagedUserMutation(data, requestedWorkbook);
     showToast(enabled ? '有効にしました' : '無効にしました');
   } catch (e) {
     showToast(e.message || '更新に失敗しました');
@@ -1567,16 +1589,15 @@ async function toggleManagedUser(row, enabled) {
 async function deleteManagedUser(row, name) {
   if (!ensureServerPage()) return;
   if (!confirm(`${name} を削除しますか？`)) return;
+  const requestedWorkbook = managedUserState.workbook;
   try {
     const res = await fetch(
-      `/api/user-management/${row}?workbook=${encodeURIComponent(managedUserState.workbook)}`,
+      `/api/user-management/${row}?workbook=${encodeURIComponent(requestedWorkbook)}`,
       { method:'DELETE' }
     );
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || '削除に失敗しました');
-    managedUserState.users = data.users || [];
-    renderManagedUsers();
-    resetManagedUserForm();
+    if (applyManagedUserMutation(data, requestedWorkbook)) resetManagedUserForm();
     showToast('削除しました');
   } catch (e) {
     showToast(e.message || '削除に失敗しました');

@@ -764,16 +764,41 @@ def get_user_workbook(workbook_key=None):
     workbook = USER_WORKBOOKS.get(key)
     if workbook is None:
         raise ValueError("対象班が不正です")
+    spreadsheet_ids = [
+        str(item.get("spreadsheetId") or "").strip()
+        for item in USER_WORKBOOKS.values()
+    ]
+    if not workbook.get("spreadsheetId"):
+        raise RuntimeError(f"{workbook['label']}のスプレッドシートIDが未設定です")
+    if len(spreadsheet_ids) != len(set(spreadsheet_ids)):
+        raise RuntimeError("北川班と森班に同じスプレッドシートIDが設定されています")
     return workbook
+
+
+def require_user_workbook_key(value):
+    key = str(value or "").strip().casefold()
+    if not key:
+        raise ValueError("対象班を指定してください")
+    return get_user_workbook(key)["key"]
 
 
 def _sheet_range(a1_range, sheet_name=USER_SHEET_NAME):
     safe_name = sheet_name.replace("'", "''")
     return f"'{safe_name}'!{a1_range}"
 
-GAS_URL = "https://script.google.com/macros/s/AKfycbwQnloM9iTOAc-0JGRWZPrNVAswlG49SCTb6a4qphQ6DxcW6MN2HPaaaG_egrlJU1U6/exec"
+GAS_URL = os.getenv(
+    "KITAGAWA_GAS_URL",
+    "https://script.google.com/macros/s/AKfycbwQnloM9iTOAc-0JGRWZPrNVAswlG49SCTb6a4qphQ6DxcW6MN2HPaaaG_egrlJU1U6/exec",
+).strip()
+GAS_TOKEN = os.getenv("KITAGAWA_GAS_TOKEN", "適当な長い秘密文字列").strip()
 
-GAS_TOKEN = "適当な長い秘密文字列"
+# 集計処理も班ごとに分離する。森班用GASが未設定なら、森班の管理シートだけを
+# 更新し、北川班用GASを誤って呼び出さない。
+USER_WORKBOOKS["kitagawa"].update({"gasUrl": GAS_URL, "gasToken": GAS_TOKEN})
+USER_WORKBOOKS["mori"].update({
+    "gasUrl": os.getenv("MORI_GAS_URL", "").strip(),
+    "gasToken": os.getenv("MORI_GAS_TOKEN", "").strip(),
+})
 
 
 def future_monthly_summary_rows(rows, today=None):
@@ -846,9 +871,10 @@ def refresh_monthly_summary(workbook_key=DEFAULT_USER_WORKBOOK_KEY):
 
     try:
         workbook = get_user_workbook(workbook_key)
-        if workbook["key"] != DEFAULT_USER_WORKBOOK_KEY:
+        gas_url = workbook.get("gasUrl", "").strip()
+        if not gas_url:
             reset_rows = reset_future_monthly_summary(workbook["spreadsheetId"])
-            print(f"{workbook['label']}は管理タブのみ更新（北川班専用GASは実行しません）")
+            print(f"{workbook['label']}は管理タブのみ更新（この班のGASは未設定です）")
             print("======================")
             return {
                 "ok": True,
@@ -857,16 +883,16 @@ def refresh_monthly_summary(workbook_key=DEFAULT_USER_WORKBOOK_KEY):
             }
 
         response = requests.post(
-            GAS_URL,
+            gas_url,
             json={
-                "token": GAS_TOKEN,
+                "token": workbook.get("gasToken", ""),
                 "spreadsheetId": workbook["spreadsheetId"],
                 "workbookKey": workbook["key"],
             },
             timeout=60
         )
 
-        print("GAS URL:", GAS_URL)
+        print("GAS URL:", gas_url)
         print("GAS status:", response.status_code)
         print("GAS response:", response.text)
 
@@ -1123,7 +1149,7 @@ def api_user_management_list():
 @app.route("/api/user-management", methods=["POST"])
 def api_user_management_save():
     data = request.json or {}
-    workbook_key = data.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
+    workbook_key = data.get("workbook")
     name = str(data.get("name") or "").strip()
     if not name:
         return jsonify({"error": "ユーザー名を入力してください"}), 400
@@ -1133,6 +1159,7 @@ def api_user_management_save():
     row = data.get("row")
 
     try:
+        workbook_key = require_user_workbook_key(workbook_key)
         workbook = get_user_workbook(workbook_key)
         users, blank_rows = read_managed_users(workbook["key"], include_blanks=True)
         row = int(row) if row else None
@@ -1165,9 +1192,10 @@ def api_user_management_save():
 @app.route("/api/user-management/<int:row>/status", methods=["PATCH"])
 def api_user_management_status(row):
     data = request.json or {}
-    workbook_key = data.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
+    workbook_key = data.get("workbook")
     enabled = data.get("enabled") is True
     try:
+        workbook_key = require_user_workbook_key(workbook_key)
         workbook = get_user_workbook(workbook_key)
         users = read_managed_users(workbook["key"])
         current = next((u for u in users if u["row"] == row), None)
@@ -1198,7 +1226,7 @@ def api_user_management_status(row):
 @app.route("/api/user-management/<int:row>", methods=["DELETE"])
 def api_user_management_delete(row):
     try:
-        workbook_key = request.args.get("workbook") or DEFAULT_USER_WORKBOOK_KEY
+        workbook_key = require_user_workbook_key(request.args.get("workbook"))
         workbook = get_user_workbook(workbook_key)
         users = read_managed_users(workbook["key"])
         if not any(u["row"] == row for u in users):
