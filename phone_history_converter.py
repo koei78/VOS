@@ -69,6 +69,10 @@ def normalize_phone(value: str) -> str:
 def spreadsheet_phone(value: str) -> str:
     """Keep a phone number as text when the CSV is imported into a spreadsheet."""
     phone = _clean_phone(value)
+    # VOSやExcelを経由して数値化された日本の電話番号は、先頭の0が落ちて
+    # 9桁（固定電話など）または10桁（携帯電話など）になることがある。
+    if phone and not phone.startswith("0") and len(phone) in {9, 10}:
+        phone = f"0{phone}"
     return f'=\"{phone}\"' if phone else ""
 
 

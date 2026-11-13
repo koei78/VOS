@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from phone_history_converter import ConversionError, convert_customer_csv
+from phone_history_converter import ConversionError, convert_customer_csv, spreadsheet_phone
 
 
 def make_history_row(phone: str, date: str, time: str, store: str = "店舗") -> list[str]:
@@ -22,6 +22,11 @@ def make_history_row(phone: str, date: str, time: str, store: str = "店舗") ->
 
 
 class PhoneHistoryConverterTests(unittest.TestCase):
+    def test_spreadsheet_phone_restores_dropped_japanese_leading_zero(self):
+        self.assertEqual(spreadsheet_phone("358493767.0"), '=\"0358493767\"')
+        self.assertEqual(spreadsheet_phone("9012345678.0"), '=\"09012345678\"')
+        self.assertEqual(spreadsheet_phone("09012345678"), '=\"09012345678\"')
+
     def convert(self, customer_csv: bytes, history_rows: list[list[str]], applicant_only: bool = False):
         with tempfile.TemporaryDirectory() as directory:
             history_path = Path(directory) / "30秒省き.csv"

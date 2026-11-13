@@ -18,7 +18,7 @@ import requests
 
 
 from carrier_lookup import FixedLineCarrierLookup
-from phone_history_converter import ConversionError, convert_customer_csv
+from phone_history_converter import ConversionError, convert_customer_csv, spreadsheet_phone
 from vos import VOSClient
 
 
@@ -336,7 +336,7 @@ def row_matches_download_filters(row, filters):
 
 def row_output_values(row, representative_name):
     return [
-        row.get("receiver_number", ""),
+        spreadsheet_phone(row.get("receiver_number", "")),
         representative_name,
         row.get("customer_id", ""),
         row.get("customer_name", ""),
@@ -394,6 +394,34 @@ def write_representative_outputs(rows, output_prefix):
             z.write(path, os.path.basename(path))
 
     return all_path, zip_path, hour_paths
+
+
+def spreadsheet_safe_csv(path, phone_column_indexes):
+    """Return CSV bytes whose phone columns retain leading zeroes in Sheets."""
+    encoding = "utf-8-sig"
+    try:
+        with open(path, "r", encoding=encoding, newline="") as source:
+            rows = list(csv.reader(source))
+    except UnicodeDecodeError:
+        encoding = "cp932"
+        with open(path, "r", encoding=encoding, newline="") as source:
+            rows = list(csv.reader(source))
+
+    header_seen = False
+    for row in rows:
+        if not any(str(value or "").strip() for value in row):
+            continue
+        if not header_seen:
+            header_seen = True
+            continue
+        for column_index in phone_column_indexes:
+            if column_index < len(row):
+                row[column_index] = spreadsheet_phone(row[column_index])
+
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8-sig")
 
 
 def insert_call_history_rows(rows):
@@ -1763,14 +1791,23 @@ def api_job(jid):
 # ─────────────────────────────────────────────
 @app.route("/api/csv/<filename>")
 def api_csv(filename):
-    import os
     safe = {"call_log.csv", "cleaned_split.csv"}
     if filename not in safe:
         return "Not found", 404
     path = os.path.join(os.path.dirname(__file__), filename)
     if not os.path.exists(path):
         return "ファイルがありません", 404
-    return send_file(path, as_attachment=True, download_name=filename)
+    phone_columns = {
+        "call_log.csv": (4, 5, 7),
+        "cleaned_split.csv": (7, 8, 10),
+    }
+    csv_data = spreadsheet_safe_csv(path, phone_columns[filename])
+    return send_file(
+        io.BytesIO(csv_data),
+        mimetype="text/csv; charset=utf-8",
+        as_attachment=True,
+        download_name=filename,
+    )
 
 
 @app.route("/api/download-output/<filename>")
@@ -1779,6 +1816,14 @@ def api_download_output(filename):
     path = os.path.join(DOWNLOAD_OUTPUT_DIR, safe_name)
     if safe_name != filename or not os.path.exists(path):
         return "Not found", 404
+    if safe_name.casefold().endswith(".csv"):
+        csv_data = spreadsheet_safe_csv(path, (0,))
+        return send_file(
+            io.BytesIO(csv_data),
+            mimetype="text/csv; charset=utf-8",
+            as_attachment=True,
+            download_name=safe_name,
+        )
     return send_file(path, as_attachment=True, download_name=safe_name)
 
 
